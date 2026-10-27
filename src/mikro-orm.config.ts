@@ -1,7 +1,10 @@
 import { defineConfig } from '@mikro-orm/postgresql';
 import { Migrator } from '@mikro-orm/migrations';
+import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy';
 
 export default defineConfig({
+    metadataProvider: ReflectMetadataProvider,
+
   host: 'localhost',
   port: 5432,
   user: 'jungle',
@@ -18,8 +21,8 @@ export default defineConfig({
   extensions: [Migrator],
 
   migrations: {
-    path: './migrations',
-    pathTs: './migrations',
+    path: './dist/migrations',
+    pathTs: './src/migrations',
     transactional: true,
     allOrNothing: true,
   },
