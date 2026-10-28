@@ -604,4 +604,98 @@ describe('ProcessWagerUseCase', () => {
       appendedLedgerEntry?.balanceAfter.toString(),
     ).toBe('100.00');
   });
+
+  it('should keep a REFUND as PENDING_REFERENCE when the referenced BET does not exist', async () => {
+    const wallet = Wallet.open({
+      id: '22222222-2222-2222-2222-222222222222',
+      playerId: '33333333-3333-3333-3333-333333333333',
+      initialBalance: Money.from({
+        amount: '75.00',
+        currency: 'BRL',
+      }),
+    });
+
+    let savedTransaction: WagerTransaction | undefined;
+    let walletSaveCalls = 0;
+    let ledgerAppendCalls = 0;
+
+    const walletRepository = {
+      findByIdForUpdate: async () => wallet,
+
+      save: async () => {
+        walletSaveCalls += 1;
+      },
+    } as WalletRepository;
+
+    const wagerRepository = {
+      findByProviderAndIdempotencyKey: async () => null,
+
+      findByProviderAndExternalTransactionId: async () => null,
+
+      save: async (transaction: WagerTransaction) => {
+        savedTransaction = transaction;
+      },
+    } as WagerTransactionRepository;
+
+    const ledgerRepository = {
+      append: async () => {
+        ledgerAppendCalls += 1;
+      },
+    } as WalletLedgerEntryRepository;
+
+    const transactionManager = {
+      execute: async <T>(
+        work: () => Promise<T>,
+      ): Promise<T> => work(),
+    } as TransactionManager;
+
+    const useCase = new ProcessWagerUseCase(
+      walletRepository,
+      wagerRepository,
+      ledgerRepository,
+      transactionManager,
+    );
+
+    const result = await useCase.execute({
+      id: '88888888-8888-8888-8888-888888888888',
+      providerId: 'provider-1',
+      externalTransactionId: 'external-refund-pending-1',
+      idempotencyKey: 'key-refund-pending-1',
+      payloadHash: 'hash-refund-pending-1',
+      walletId: wallet.id,
+      playerId: wallet.playerId,
+      roundId: 'round-1',
+      gameId: 'game-1',
+      kind: WagerTransactionKind.Refund,
+      amount: '25.00',
+      currency: 'BRL',
+      referenceExternalTransactionId:
+        'external-bet-not-created-yet',
+    });
+
+    expect(result.status).toBe(
+      WagerTransactionStatus.PendingReference,
+    );
+
+    expect(result.balance).toBe('75.00');
+    expect(result.idempotentReplay).toBe(false);
+
+    expect(wallet.balance.toString()).toBe('75.00');
+    expect(wallet.version).toBe(1);
+
+    expect(walletSaveCalls).toBe(0);
+    expect(ledgerAppendCalls).toBe(0);
+
+    expect(savedTransaction?.status).toBe(
+      WagerTransactionStatus.PendingReference,
+    );
+
+    expect(
+      savedTransaction?.referenceTransactionId,
+    ).toBeUndefined();
+
+    expect(
+      savedTransaction?.resultBalance,
+    ).toBeUndefined();
+  });
 });

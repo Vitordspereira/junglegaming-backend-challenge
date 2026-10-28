@@ -167,9 +167,10 @@ export class ProcessWagerUseCase {
         }
 
         /*
-         * A nova transação começa como PENDING.
+         * Toda nova transação começa como PENDING.
          *
-         * Tudo continua dentro da mesma transação SQL.
+         * A persistência acontece dentro da mesma
+         * transação SQL.
          */
         await this.wagerTransactionRepository.save(
           transaction,
@@ -178,7 +179,8 @@ export class ProcessWagerUseCase {
         /*
          * LOSS
          *
-         * Não altera saldo e não cria ledger.
+         * Não altera saldo.
+         * Não cria ledger.
          */
         if (
           input.kind === WagerTransactionKind.Loss
@@ -206,7 +208,8 @@ export class ProcessWagerUseCase {
          *
          * Procura a BET original usando:
          *
-         * providerId + referenceExternalTransactionId
+         * providerId +
+         * referenceExternalTransactionId
          */
         if (
           input.kind === WagerTransactionKind.Refund
@@ -224,22 +227,37 @@ export class ProcessWagerUseCase {
             );
 
           /*
-           * Por enquanto tratamos apenas o caminho feliz.
+           * A referência ainda não chegou.
            *
-           * No próximo passo, ausência de referência será
-           * transformada em PENDING_REFERENCE.
+           * Não rejeitamos a operação.
+           *
+           * Ela fica como PENDING_REFERENCE para que
+           * posteriormente um worker tente novamente.
+           *
+           * Nenhum dinheiro é movimentado.
+           * Nenhum ledger é criado.
            */
           if (!referencedTransaction) {
-            throw new Error(
-              'Reference transaction not found',
+            transaction.markPendingReference();
+
+            await this.wagerTransactionRepository.save(
+              transaction,
             );
+
+            return {
+              transactionId: transaction.id,
+              status: transaction.status,
+              balance: wallet.balance.toString(),
+              idempotentReplay: false,
+            };
           }
 
           /*
-           * REFUND somente pode devolver uma BET processada.
+           * REFUND somente pode devolver uma
+           * BET já processada.
            *
-           * As outras validações mais detalhadas serão
-           * adicionadas nos próximos testes.
+           * As validações completas de referência
+           * serão implementadas nos próximos testes.
            */
           if (
             referencedTransaction.kind !==
