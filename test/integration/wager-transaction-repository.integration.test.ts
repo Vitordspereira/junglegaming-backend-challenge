@@ -70,6 +70,17 @@ describe('MikroOrmWagerTransactionRepository integration', () => {
 
     await repository.save(transaction);
 
+    transaction.markProcessed(
+      undefined,
+      new Date(),
+      Money.from({
+        amount: '75.00',
+        currency: 'BRL',
+      }),
+    );
+
+    await repository.save(transaction);
+
     const savedTransaction =
       await repository.findById(transactionId);
 
@@ -79,9 +90,10 @@ describe('MikroOrmWagerTransactionRepository integration', () => {
       WagerTransactionKind.Bet,
     );
     expect(savedTransaction?.status).toBe(
-      WagerTransactionStatus.Pending,
+      WagerTransactionStatus.Processed,
     );
     expect(savedTransaction?.money.toString()).toBe('25.00');
+    expect(savedTransaction?.resultBalance?.toString()).toBe('75.00');
 
     const byExternalTransaction =
       await repository.findByProviderAndExternalTransactionId(
@@ -100,5 +112,6 @@ describe('MikroOrmWagerTransactionRepository integration', () => {
 
     expect(byIdempotencyKey).not.toBeNull();
     expect(byIdempotencyKey?.id).toBe(transactionId);
+    expect(byIdempotencyKey?.resultBalance?.toString()).toBe('75.00');
   });
 });

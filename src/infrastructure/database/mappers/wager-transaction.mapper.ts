@@ -28,6 +28,12 @@ export class WagerTransactionMapper {
       referenceTransactionId: entity.referenceTransactionId,
       failureCode: entity.failureCode,
       processedAt: entity.processedAt,
+      resultBalance: entity.resultBalance
+        ? Money.from({
+            amount: entity.resultBalance,
+            currency: entity.currency,
+          })
+        : undefined,
     });
   }
 
@@ -57,6 +63,8 @@ export class WagerTransactionMapper {
     entity.failureCode = transaction.failureCode;
     entity.createdAt = transaction.createdAt;
     entity.processedAt = transaction.processedAt;
+    entity.resultBalance =
+      transaction.resultBalance?.toString();
 
     return entity;
   }

@@ -86,6 +86,8 @@ export class MikroOrmWagerTransactionRepository
       transaction.referenceTransactionId;
     existingEntity.failureCode = transaction.failureCode;
     existingEntity.processedAt = transaction.processedAt;
+    existingEntity.resultBalance =
+      transaction.resultBalance?.toString();
 
     await this.entityManager.flush();
   }

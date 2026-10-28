@@ -49,6 +49,7 @@ export interface WagerTransactionState extends CreateWagerTransactionProps {
   referenceTransactionId?: string;
   failureCode?: FailureCode;
   processedAt?: Date;
+  resultBalance?: Money;
 }
 
 export class WagerTransaction {
@@ -70,6 +71,7 @@ export class WagerTransaction {
     private _referenceTransactionId?: string,
     private _failureCode?: FailureCode,
     private _processedAt?: Date,
+    private _resultBalance?: Money,
   ) {}
 
   static create(props: CreateWagerTransactionProps): WagerTransaction {
@@ -136,6 +138,7 @@ export class WagerTransaction {
       state.referenceTransactionId,
       state.failureCode,
       state.processedAt,
+      state.resultBalance,
     );
   }
 
@@ -155,15 +158,21 @@ export class WagerTransaction {
     return this._processedAt;
   }
 
+  get resultBalance(): Money | undefined {
+    return this._resultBalance;
+  }
+
   markProcessed(
     referenceTransactionId: string | undefined,
     at: Date,
+    resultBalance?: Money,
   ): void {
     this.assertNotTerminal();
 
     this._referenceTransactionId = referenceTransactionId;
     this._status = WagerTransactionStatus.Processed;
     this._processedAt = at;
+    this._resultBalance = resultBalance;
   }
 
   markPendingReference(): void {
