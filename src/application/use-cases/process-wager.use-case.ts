@@ -229,13 +229,10 @@ export class ProcessWagerUseCase {
           /*
            * A referência ainda não chegou.
            *
-           * Não rejeitamos a operação.
+           * Não rejeitamos.
            *
-           * Ela fica como PENDING_REFERENCE para que
-           * posteriormente um worker tente novamente.
-           *
-           * Nenhum dinheiro é movimentado.
-           * Nenhum ledger é criado.
+           * O REFUND fica como PENDING_REFERENCE
+           * para ser resolvido posteriormente.
            */
           if (!referencedTransaction) {
             transaction.markPendingReference();
@@ -253,11 +250,16 @@ export class ProcessWagerUseCase {
           }
 
           /*
-           * REFUND somente pode devolver uma
-           * BET já processada.
+           * REFUND só pode apontar para:
            *
-           * As validações completas de referência
-           * serão implementadas nos próximos testes.
+           * BET + PROCESSED
+           *
+           * Se a referência existe, mas não atende
+           * essa regra, rejeitamos com
+           * INVALID_REFERENCE.
+           *
+           * O saldo não é alterado.
+           * Nenhum ledger é criado.
            */
           if (
             referencedTransaction.kind !==
@@ -265,9 +267,23 @@ export class ProcessWagerUseCase {
             referencedTransaction.status !==
               WagerTransactionStatus.Processed
           ) {
-            throw new Error(
-              'Invalid REFUND reference',
+            transaction.reject(
+              FailureCode.InvalidReference,
+              wallet.balance,
             );
+
+            await this.wagerTransactionRepository.save(
+              transaction,
+            );
+
+            return {
+              transactionId: transaction.id,
+              status: transaction.status,
+              balance: wallet.balance.toString(),
+              failureCode:
+                transaction.failureCode,
+              idempotentReplay: false,
+            };
           }
 
           const balanceChange =

@@ -698,4 +698,142 @@ describe('ProcessWagerUseCase', () => {
       savedTransaction?.resultBalance,
     ).toBeUndefined();
   });
+
+  it('should reject a REFUND when the referenced transaction is not a processed BET', async () => {
+    const wallet = Wallet.open({
+      id: '22222222-2222-2222-2222-222222222222',
+      playerId: '33333333-3333-3333-3333-333333333333',
+      initialBalance: Money.from({
+        amount: '75.00',
+        currency: 'BRL',
+      }),
+    });
+
+    const referencedWin = WagerTransaction.create({
+      id: '99999999-9999-9999-9999-999999999999',
+      providerId: 'provider-1',
+      externalTransactionId: 'external-win-invalid-refund-1',
+      idempotencyKey: 'key-win-invalid-refund-1',
+      payloadHash: 'hash-win-invalid-refund-1',
+      walletId: wallet.id,
+      playerId: wallet.playerId,
+      roundId: 'round-1',
+      gameId: 'game-1',
+      kind: WagerTransactionKind.Win,
+      money: Money.from({
+        amount: '25.00',
+        currency: 'BRL',
+      }),
+    });
+
+    referencedWin.markProcessed(
+      undefined,
+      new Date(),
+      Money.from({
+        amount: '100.00',
+        currency: 'BRL',
+      }),
+    );
+
+    let savedTransaction: WagerTransaction | undefined;
+    let walletSaveCalls = 0;
+    let ledgerAppendCalls = 0;
+
+    const walletRepository = {
+      findByIdForUpdate: async () => wallet,
+
+      save: async () => {
+        walletSaveCalls += 1;
+      },
+    } as WalletRepository;
+
+    const wagerRepository = {
+      findByProviderAndIdempotencyKey: async () => null,
+
+      findByProviderAndExternalTransactionId: async (
+        providerId: string,
+        externalTransactionId: string,
+      ) => {
+        if (
+          providerId === 'provider-1' &&
+          externalTransactionId ===
+            'external-win-invalid-refund-1'
+        ) {
+          return referencedWin;
+        }
+
+        return null;
+      },
+
+      save: async (transaction: WagerTransaction) => {
+        savedTransaction = transaction;
+      },
+    } as WagerTransactionRepository;
+
+    const ledgerRepository = {
+      append: async () => {
+        ledgerAppendCalls += 1;
+      },
+    } as WalletLedgerEntryRepository;
+
+    const transactionManager = {
+      execute: async <T>(
+        work: () => Promise<T>,
+      ): Promise<T> => work(),
+    } as TransactionManager;
+
+    const useCase = new ProcessWagerUseCase(
+      walletRepository,
+      wagerRepository,
+      ledgerRepository,
+      transactionManager,
+    );
+
+    const result = await useCase.execute({
+      id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      providerId: 'provider-1',
+      externalTransactionId: 'external-refund-invalid-reference-1',
+      idempotencyKey: 'key-refund-invalid-reference-1',
+      payloadHash: 'hash-refund-invalid-reference-1',
+      walletId: wallet.id,
+      playerId: wallet.playerId,
+      roundId: 'round-1',
+      gameId: 'game-1',
+      kind: WagerTransactionKind.Refund,
+      amount: '25.00',
+      currency: 'BRL',
+      referenceExternalTransactionId:
+        'external-win-invalid-refund-1',
+    });
+
+    expect(result.status).toBe(
+      WagerTransactionStatus.Rejected,
+    );
+
+    expect(result.failureCode).toBe(
+      FailureCode.InvalidReference,
+    );
+
+    expect(result.balance).toBe('75.00');
+    expect(result.idempotentReplay).toBe(false);
+
+    expect(wallet.balance.toString()).toBe('75.00');
+    expect(wallet.version).toBe(1);
+
+    expect(walletSaveCalls).toBe(0);
+    expect(ledgerAppendCalls).toBe(0);
+
+    expect(savedTransaction?.status).toBe(
+      WagerTransactionStatus.Rejected,
+    );
+
+    expect(savedTransaction?.failureCode).toBe(
+      FailureCode.InvalidReference,
+    );
+
+    expect(
+      savedTransaction?.resultBalance?.toString(),
+    ).toBe('75.00');
+  });
+
 });
