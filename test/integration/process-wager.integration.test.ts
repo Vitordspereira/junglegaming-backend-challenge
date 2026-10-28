@@ -1068,4 +1068,318 @@ describe('ProcessWagerUseCase integration', () => {
     }
   });
 
+
+  it('processes a ROLLBACK of a processed BET atomically in PostgreSQL', async () => {
+    const em = orm.em.fork();
+
+    await em.begin();
+
+    try {
+      const walletRepository =
+        new MikroOrmWalletRepository(em);
+
+      const wagerRepository =
+        new MikroOrmWagerTransactionRepository(em);
+
+      const ledgerRepository =
+        new MikroOrmWalletLedgerEntryRepository(em);
+
+      const transactionManager =
+        new MikroOrmTransactionManager(em);
+
+      const useCase = new ProcessWagerUseCase(
+        walletRepository,
+        wagerRepository,
+        ledgerRepository,
+        transactionManager,
+      );
+
+      const wallet = Wallet.open({
+        id: '71717171-1111-2222-3333-717171717171',
+        playerId: '81818181-1111-2222-3333-818181818181',
+        initialBalance: Money.from({
+          amount: '100.00',
+          currency: 'BRL',
+        }),
+      });
+
+      await walletRepository.save(wallet);
+
+      const bet = await useCase.execute({
+        id: '91919191-1111-2222-3333-919191919191',
+        providerId: 'provider-integration-rollback-bet',
+        externalTransactionId:
+          'external-bet-integration-rollback-bet',
+        idempotencyKey:
+          'key-bet-integration-rollback-bet',
+        payloadHash:
+          'hash-bet-integration-rollback-bet',
+        walletId: wallet.id,
+        playerId: wallet.playerId,
+        roundId: 'round-integration-rollback-bet',
+        gameId: 'game-integration-rollback-bet',
+        kind: WagerTransactionKind.Bet,
+        amount: '25.00',
+        currency: 'BRL',
+      });
+
+      expect(bet.status).toBe(
+        WagerTransactionStatus.Processed,
+      );
+      expect(bet.balance).toBe('75.00');
+
+      const rollback = await useCase.execute({
+        id: 'a1a1a1a1-1111-2222-3333-a1a1a1a1a1a1',
+        providerId: 'provider-integration-rollback-bet',
+        externalTransactionId:
+          'external-rollback-integration-bet',
+        idempotencyKey:
+          'key-rollback-integration-bet',
+        payloadHash:
+          'hash-rollback-integration-bet',
+        walletId: wallet.id,
+        playerId: wallet.playerId,
+        roundId: 'round-integration-rollback-bet',
+        gameId: 'game-integration-rollback-bet',
+        kind: WagerTransactionKind.Rollback,
+        amount: '25.00',
+        currency: 'BRL',
+        referenceExternalTransactionId:
+          'external-bet-integration-rollback-bet',
+      });
+
+      expect(rollback.status).toBe(
+        WagerTransactionStatus.Processed,
+      );
+      expect(rollback.balance).toBe('100.00');
+      expect(rollback.failureCode).toBeUndefined();
+
+      const persistedWallet =
+        await walletRepository.findById(wallet.id);
+
+      expect(persistedWallet).not.toBeNull();
+      expect(
+        persistedWallet?.balance.toString(),
+      ).toBe('100.00');
+
+      const persistedRollback =
+        await wagerRepository.findByProviderAndExternalTransactionId(
+          'provider-integration-rollback-bet',
+          'external-rollback-integration-bet',
+        );
+
+      expect(persistedRollback).not.toBeNull();
+      expect(persistedRollback?.status).toBe(
+        WagerTransactionStatus.Processed,
+      );
+      expect(
+        persistedRollback?.referenceTransactionId,
+      ).toBe(
+        '91919191-1111-2222-3333-919191919191',
+      );
+      expect(
+        persistedRollback?.resultBalance?.toString(),
+      ).toBe('100.00');
+
+      const rollbackLedger =
+        await ledgerRepository.findByWalletAndTransaction(
+          wallet.id,
+          'a1a1a1a1-1111-2222-3333-a1a1a1a1a1a1',
+        );
+
+      expect(rollbackLedger).not.toBeNull();
+      expect(rollbackLedger?.direction).toBe(
+        LedgerDirection.Credit,
+      );
+      expect(
+        rollbackLedger?.money.toString(),
+      ).toBe('25.00');
+      expect(
+        rollbackLedger?.balanceBefore.toString(),
+      ).toBe('75.00');
+      expect(
+        rollbackLedger?.balanceAfter.toString(),
+      ).toBe('100.00');
+    } finally {
+      await em.rollback();
+    }
+  });
+
+
+  it('rejects a second ROLLBACK for the same processed transaction in PostgreSQL', async () => {
+    const em = orm.em.fork();
+
+    await em.begin();
+
+    try {
+      const walletRepository =
+        new MikroOrmWalletRepository(em);
+
+      const wagerRepository =
+        new MikroOrmWagerTransactionRepository(em);
+
+      const ledgerRepository =
+        new MikroOrmWalletLedgerEntryRepository(em);
+
+      const transactionManager =
+        new MikroOrmTransactionManager(em);
+
+      const useCase = new ProcessWagerUseCase(
+        walletRepository,
+        wagerRepository,
+        ledgerRepository,
+        transactionManager,
+      );
+
+      const wallet = Wallet.open({
+        id: 'b1b1b1b1-1111-2222-3333-b1b1b1b1b1b1',
+        playerId: 'c1c1c1c1-1111-2222-3333-c1c1c1c1c1c1',
+        initialBalance: Money.from({
+          amount: '100.00',
+          currency: 'BRL',
+        }),
+      });
+
+      await walletRepository.save(wallet);
+
+      const bet = await useCase.execute({
+        id: 'd1d1d1d1-1111-2222-3333-d1d1d1d1d1d1',
+        providerId: 'provider-integration-duplicate-rollback',
+        externalTransactionId:
+          'external-bet-integration-duplicate-rollback',
+        idempotencyKey:
+          'key-bet-integration-duplicate-rollback',
+        payloadHash:
+          'hash-bet-integration-duplicate-rollback',
+        walletId: wallet.id,
+        playerId: wallet.playerId,
+        roundId: 'round-integration-duplicate-rollback',
+        gameId: 'game-integration-duplicate-rollback',
+        kind: WagerTransactionKind.Bet,
+        amount: '25.00',
+        currency: 'BRL',
+      });
+
+      expect(bet.status).toBe(
+        WagerTransactionStatus.Processed,
+      );
+      expect(bet.balance).toBe('75.00');
+
+      const firstRollback = await useCase.execute({
+        id: 'e1e1e1e1-1111-2222-3333-e1e1e1e1e1e1',
+        providerId: 'provider-integration-duplicate-rollback',
+        externalTransactionId:
+          'external-rollback-integration-duplicate-1',
+        idempotencyKey:
+          'key-rollback-integration-duplicate-1',
+        payloadHash:
+          'hash-rollback-integration-duplicate-1',
+        walletId: wallet.id,
+        playerId: wallet.playerId,
+        roundId: 'round-integration-duplicate-rollback',
+        gameId: 'game-integration-duplicate-rollback',
+        kind: WagerTransactionKind.Rollback,
+        amount: '25.00',
+        currency: 'BRL',
+        referenceExternalTransactionId:
+          'external-bet-integration-duplicate-rollback',
+      });
+
+      expect(firstRollback.status).toBe(
+        WagerTransactionStatus.Processed,
+      );
+      expect(firstRollback.balance).toBe('100.00');
+
+      const secondRollback = await useCase.execute({
+        id: 'f1f1f1f1-1111-2222-3333-f1f1f1f1f1f1',
+        providerId: 'provider-integration-duplicate-rollback',
+        externalTransactionId:
+          'external-rollback-integration-duplicate-2',
+        idempotencyKey:
+          'key-rollback-integration-duplicate-2',
+        payloadHash:
+          'hash-rollback-integration-duplicate-2',
+        walletId: wallet.id,
+        playerId: wallet.playerId,
+        roundId: 'round-integration-duplicate-rollback',
+        gameId: 'game-integration-duplicate-rollback',
+        kind: WagerTransactionKind.Rollback,
+        amount: '25.00',
+        currency: 'BRL',
+        referenceExternalTransactionId:
+          'external-bet-integration-duplicate-rollback',
+      });
+
+      expect(secondRollback.status).toBe(
+        WagerTransactionStatus.Rejected,
+      );
+
+      expect(secondRollback.failureCode).toBe(
+        FailureCode.DuplicateReversal,
+      );
+
+      expect(secondRollback.balance).toBe('100.00');
+
+      const persistedWallet =
+        await walletRepository.findById(wallet.id);
+
+      expect(persistedWallet).not.toBeNull();
+      expect(
+        persistedWallet?.balance.toString(),
+      ).toBe('100.00');
+
+      const firstRollbackTransaction =
+        await wagerRepository.findByProviderAndExternalTransactionId(
+          'provider-integration-duplicate-rollback',
+          'external-rollback-integration-duplicate-1',
+        );
+
+      expect(firstRollbackTransaction).not.toBeNull();
+      expect(firstRollbackTransaction?.status).toBe(
+        WagerTransactionStatus.Processed,
+      );
+
+      expect(
+        firstRollbackTransaction?.referenceTransactionId,
+      ).toBe(
+        'd1d1d1d1-1111-2222-3333-d1d1d1d1d1d1',
+      );
+
+      const secondRollbackTransaction =
+        await wagerRepository.findByProviderAndExternalTransactionId(
+          'provider-integration-duplicate-rollback',
+          'external-rollback-integration-duplicate-2',
+        );
+
+      expect(secondRollbackTransaction).not.toBeNull();
+      expect(secondRollbackTransaction?.status).toBe(
+        WagerTransactionStatus.Rejected,
+      );
+
+      expect(
+        secondRollbackTransaction?.failureCode,
+      ).toBe(
+        FailureCode.DuplicateReversal,
+      );
+
+      const firstRollbackLedger =
+        await ledgerRepository.findByWalletAndTransaction(
+          wallet.id,
+          'e1e1e1e1-1111-2222-3333-e1e1e1e1e1e1',
+        );
+
+      expect(firstRollbackLedger).not.toBeNull();
+
+      const secondRollbackLedger =
+        await ledgerRepository.findByWalletAndTransaction(
+          wallet.id,
+          'f1f1f1f1-1111-2222-3333-f1f1f1f1f1f1',
+        );
+
+      expect(secondRollbackLedger).toBeNull();
+    } finally {
+      await em.rollback();
+    }
+  });
+
 });

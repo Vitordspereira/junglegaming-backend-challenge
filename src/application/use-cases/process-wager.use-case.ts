@@ -122,10 +122,11 @@ export class ProcessWagerUseCase {
       input.kind !== WagerTransactionKind.Bet &&
       input.kind !== WagerTransactionKind.Win &&
       input.kind !== WagerTransactionKind.Loss &&
-      input.kind !== WagerTransactionKind.Refund
+      input.kind !== WagerTransactionKind.Refund &&
+      input.kind !== WagerTransactionKind.Rollback
     ) {
       throw new Error(
-        'Only BET, WIN, LOSS and REFUND processing are implemented for now',
+        'Only BET, WIN, LOSS, REFUND and ROLLBACK processing are implemented for now',
       );
     }
 
@@ -190,6 +191,235 @@ export class ProcessWagerUseCase {
             transactionId: transaction.id,
             status: transaction.status,
             balance: wallet.balance.toString(),
+            idempotentReplay: false,
+          };
+        }
+
+        /*
+         * ROLLBACK
+         *
+         * Primeiro caso implementado:
+         * reverter uma BET PROCESSED.
+         *
+         * BET debitou o saldo.
+         * Portanto, o ROLLBACK faz o efeito inverso:
+         * CREDIT do mesmo valor.
+         */
+        if (
+          input.kind === WagerTransactionKind.Rollback
+        ) {
+          if (!input.referenceExternalTransactionId) {
+            throw new Error(
+              'ROLLBACK requires a reference transaction',
+            );
+          }
+
+          const referencedTransaction =
+            await this.wagerTransactionRepository.findByProviderAndExternalTransactionId(
+              input.providerId,
+              input.referenceExternalTransactionId,
+            );
+
+          if (!referencedTransaction) {
+            transaction.markPendingReference();
+
+            await this.wagerTransactionRepository.save(
+              transaction,
+            );
+
+            return {
+              transactionId: transaction.id,
+              status: transaction.status,
+              balance: wallet.balance.toString(),
+              idempotentReplay: false,
+            };
+          }
+
+          /*
+           * ROLLBACK pode reverter somente
+           * BET, WIN ou REFUND já processados.
+           */
+          if (
+            (
+              referencedTransaction.kind !==
+                WagerTransactionKind.Bet &&
+              referencedTransaction.kind !==
+                WagerTransactionKind.Win &&
+              referencedTransaction.kind !==
+                WagerTransactionKind.Refund
+            ) ||
+            referencedTransaction.status !==
+              WagerTransactionStatus.Processed
+          ) {
+            transaction.reject(
+              FailureCode.InvalidReference,
+              wallet.balance,
+            );
+
+            await this.wagerTransactionRepository.save(
+              transaction,
+            );
+
+            return {
+              transactionId: transaction.id,
+              status: transaction.status,
+              balance: wallet.balance.toString(),
+              failureCode:
+                transaction.failureCode,
+              idempotentReplay: false,
+            };
+          }
+
+          /*
+           * O ROLLBACK deve corresponder exatamente
+           * à operação que está revertendo.
+           */
+          if (
+            referencedTransaction.money.currency !==
+              money.currency ||
+            !referencedTransaction.money.equals(money) ||
+            referencedTransaction.walletId !==
+              input.walletId ||
+            referencedTransaction.playerId !==
+              input.playerId ||
+            referencedTransaction.roundId !==
+              input.roundId
+          ) {
+            transaction.reject(
+              FailureCode.InvalidReference,
+              wallet.balance,
+            );
+
+            await this.wagerTransactionRepository.save(
+              transaction,
+            );
+
+            return {
+              transactionId: transaction.id,
+              status: transaction.status,
+              balance: wallet.balance.toString(),
+              failureCode:
+                transaction.failureCode,
+              idempotentReplay: false,
+            };
+          }
+
+          /*
+           * A mesma transação não pode receber
+           * dois ROLLBACKs processados.
+           */
+          const previousRollback =
+            await this.wagerTransactionRepository.findProcessedByReferenceTransactionIdAndKind(
+              referencedTransaction.id,
+              WagerTransactionKind.Rollback,
+            );
+
+          if (previousRollback) {
+            transaction.reject(
+              FailureCode.DuplicateReversal,
+              wallet.balance,
+            );
+
+            await this.wagerTransactionRepository.save(
+              transaction,
+            );
+
+            return {
+              transactionId: transaction.id,
+              status: transaction.status,
+              balance: wallet.balance.toString(),
+              failureCode:
+                transaction.failureCode,
+              idempotentReplay: false,
+            };
+          }
+
+          /*
+           * O ROLLBACK aplica o efeito inverso
+           * da transação referenciada:
+           *
+           * BET fez DEBIT    -> ROLLBACK faz CREDIT.
+           * WIN fez CREDIT   -> ROLLBACK faz DEBIT.
+           * REFUND fez CREDIT -> ROLLBACK faz DEBIT.
+           */
+          const rollbackDirection =
+            transaction.ledgerDirectionFor(
+              referencedTransaction,
+            );
+
+          let balanceChange;
+
+          if (
+            rollbackDirection ===
+            LedgerDirection.Credit
+          ) {
+            balanceChange = wallet.credit(money);
+          } else {
+            try {
+              balanceChange = wallet.debit(money);
+            } catch (error) {
+              if (
+                error instanceof Error &&
+                error.message ===
+                  'Insufficient funds'
+              ) {
+                transaction.reject(
+                  FailureCode.ReversalInsufficientFunds,
+                  wallet.balance,
+                );
+
+                await this.wagerTransactionRepository.save(
+                  transaction,
+                );
+
+                return {
+                  transactionId: transaction.id,
+                  status: transaction.status,
+                  balance: wallet.balance.toString(),
+                  failureCode:
+                    transaction.failureCode,
+                  idempotentReplay: false,
+                };
+              }
+
+              throw error;
+            }
+          }
+
+          const ledgerEntry =
+            WalletLedgerEntry.create({
+              id: randomUUID(),
+              walletId: wallet.id,
+              transactionId: transaction.id,
+              direction: rollbackDirection,
+              money,
+              balanceBefore:
+                balanceChange.balanceBefore,
+              balanceAfter:
+                balanceChange.balanceAfter,
+            });
+
+          transaction.markProcessed(
+            referencedTransaction.id,
+            new Date(),
+            balanceChange.balanceAfter,
+          );
+
+          await this.walletRepository.save(wallet);
+
+          await this.ledgerRepository.append(
+            ledgerEntry,
+          );
+
+          await this.wagerTransactionRepository.save(
+            transaction,
+          );
+
+          return {
+            transactionId: transaction.id,
+            status: transaction.status,
+            balance:
+              balanceChange.balanceAfter.toString(),
             idempotentReplay: false,
           };
         }
