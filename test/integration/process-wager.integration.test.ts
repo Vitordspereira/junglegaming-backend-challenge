@@ -897,4 +897,175 @@ describe('ProcessWagerUseCase integration', () => {
     }
   });
 
+
+  it('should reject a second REFUND for the same processed BET', async () => {
+    const em = orm.em.fork();
+
+    await em.begin();
+
+    try {
+      const walletRepository =
+        new MikroOrmWalletRepository(em);
+
+      const wagerRepository =
+        new MikroOrmWagerTransactionRepository(em);
+
+      const ledgerRepository =
+        new MikroOrmWalletLedgerEntryRepository(em);
+
+      const transactionManager =
+        new MikroOrmTransactionManager(em);
+
+      const useCase = new ProcessWagerUseCase(
+        walletRepository,
+        wagerRepository,
+        ledgerRepository,
+        transactionManager,
+      );
+
+      const wallet = Wallet.open({
+        id: '21212121-2121-2121-2121-212121212121',
+        playerId: '31313131-3131-3131-3131-313131313131',
+        initialBalance: Money.from({
+          amount: '100.00',
+          currency: 'BRL',
+        }),
+      });
+
+      await walletRepository.save(wallet);
+
+      const bet = await useCase.execute({
+        id: '41414141-4141-4141-4141-414141414141',
+        providerId: 'provider-integration-duplicate-refund',
+        externalTransactionId:
+          'external-bet-integration-duplicate-refund',
+        idempotencyKey:
+          'key-bet-integration-duplicate-refund',
+        payloadHash:
+          'hash-bet-integration-duplicate-refund',
+        walletId: wallet.id,
+        playerId: wallet.playerId,
+        roundId: 'round-integration-duplicate-refund',
+        gameId: 'game-integration-duplicate-refund',
+        kind: WagerTransactionKind.Bet,
+        amount: '25.00',
+        currency: 'BRL',
+      });
+
+      expect(bet.status).toBe(
+        WagerTransactionStatus.Processed,
+      );
+      expect(bet.balance).toBe('75.00');
+
+      const firstRefund = await useCase.execute({
+        id: '51515151-5151-5151-5151-515151515151',
+        providerId: 'provider-integration-duplicate-refund',
+        externalTransactionId:
+          'external-refund-integration-duplicate-refund-1',
+        idempotencyKey:
+          'key-refund-integration-duplicate-refund-1',
+        payloadHash:
+          'hash-refund-integration-duplicate-refund-1',
+        walletId: wallet.id,
+        playerId: wallet.playerId,
+        roundId: 'round-integration-duplicate-refund',
+        gameId: 'game-integration-duplicate-refund',
+        kind: WagerTransactionKind.Refund,
+        amount: '25.00',
+        currency: 'BRL',
+        referenceExternalTransactionId:
+          'external-bet-integration-duplicate-refund',
+      });
+
+      expect(firstRefund.status).toBe(
+        WagerTransactionStatus.Processed,
+      );
+      expect(firstRefund.balance).toBe('100.00');
+
+      const secondRefund = await useCase.execute({
+        id: '61616161-6161-6161-6161-616161616161',
+        providerId: 'provider-integration-duplicate-refund',
+        externalTransactionId:
+          'external-refund-integration-duplicate-refund-2',
+        idempotencyKey:
+          'key-refund-integration-duplicate-refund-2',
+        payloadHash:
+          'hash-refund-integration-duplicate-refund-2',
+        walletId: wallet.id,
+        playerId: wallet.playerId,
+        roundId: 'round-integration-duplicate-refund',
+        gameId: 'game-integration-duplicate-refund',
+        kind: WagerTransactionKind.Refund,
+        amount: '25.00',
+        currency: 'BRL',
+        referenceExternalTransactionId:
+          'external-bet-integration-duplicate-refund',
+      });
+
+      expect(secondRefund.status).toBe(
+        WagerTransactionStatus.Rejected,
+      );
+      expect(secondRefund.failureCode).toBe(
+        FailureCode.DuplicateReversal,
+      );
+      expect(secondRefund.balance).toBe('100.00');
+
+      const persistedWallet =
+        await walletRepository.findById(wallet.id);
+
+      expect(persistedWallet).not.toBeNull();
+      expect(
+        persistedWallet?.balance.toString(),
+      ).toBe('100.00');
+
+      const firstRefundTransaction =
+        await wagerRepository.findByProviderAndExternalTransactionId(
+          'provider-integration-duplicate-refund',
+          'external-refund-integration-duplicate-refund-1',
+        );
+
+      expect(firstRefundTransaction).not.toBeNull();
+      expect(firstRefundTransaction?.status).toBe(
+        WagerTransactionStatus.Processed,
+      );
+      expect(
+        firstRefundTransaction?.referenceTransactionId,
+      ).toBe(
+        '41414141-4141-4141-4141-414141414141',
+      );
+
+      const secondRefundTransaction =
+        await wagerRepository.findByProviderAndExternalTransactionId(
+          'provider-integration-duplicate-refund',
+          'external-refund-integration-duplicate-refund-2',
+        );
+
+      expect(secondRefundTransaction).not.toBeNull();
+      expect(secondRefundTransaction?.status).toBe(
+        WagerTransactionStatus.Rejected,
+      );
+      expect(secondRefundTransaction?.failureCode).toBe(
+        FailureCode.DuplicateReversal,
+      );
+
+      const firstRefundLedger =
+        await ledgerRepository.findByWalletAndTransaction(
+          wallet.id,
+          '51515151-5151-5151-5151-515151515151',
+        );
+
+      expect(firstRefundLedger).not.toBeNull();
+
+      const secondRefundLedger =
+        await ledgerRepository.findByWalletAndTransaction(
+          wallet.id,
+          '61616161-6161-6161-6161-616161616161',
+        );
+
+      expect(secondRefundLedger).toBeNull();
+    } finally {
+      await em.rollback();
+    }
+  });
+
 });

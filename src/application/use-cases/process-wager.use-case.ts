@@ -166,21 +166,12 @@ export class ProcessWagerUseCase {
           throw new Error('Wallet not found');
         }
 
-        /*
-         * Toda nova transação começa como PENDING.
-         *
-         * A persistência acontece dentro da mesma
-         * transação SQL.
-         */
         await this.wagerTransactionRepository.save(
           transaction,
         );
 
         /*
          * LOSS
-         *
-         * Não altera saldo.
-         * Não cria ledger.
          */
         if (
           input.kind === WagerTransactionKind.Loss
@@ -205,11 +196,6 @@ export class ProcessWagerUseCase {
 
         /*
          * REFUND
-         *
-         * Procura a BET original usando:
-         *
-         * providerId +
-         * referenceExternalTransactionId
          */
         if (
           input.kind === WagerTransactionKind.Refund
@@ -226,14 +212,6 @@ export class ProcessWagerUseCase {
               input.referenceExternalTransactionId,
             );
 
-          /*
-           * A referência ainda não chegou.
-           *
-           * Não rejeitamos.
-           *
-           * O REFUND fica como PENDING_REFERENCE
-           * para ser resolvido posteriormente.
-           */
           if (!referencedTransaction) {
             transaction.markPendingReference();
 
@@ -250,16 +228,8 @@ export class ProcessWagerUseCase {
           }
 
           /*
-           * REFUND só pode apontar para:
-           *
-           * BET + PROCESSED
-           *
-           * Se a referência existe, mas não atende
-           * essa regra, rejeitamos com
-           * INVALID_REFERENCE.
-           *
-           * O saldo não é alterado.
-           * Nenhum ledger é criado.
+           * A referência precisa ser uma BET
+           * já processada.
            */
           if (
             referencedTransaction.kind !==
@@ -286,25 +256,185 @@ export class ProcessWagerUseCase {
             };
           }
 
+          /*
+           * A moeda precisa ser a mesma.
+           */
+          if (
+            referencedTransaction.money.currency !==
+            money.currency
+          ) {
+            transaction.reject(
+              FailureCode.InvalidReference,
+              wallet.balance,
+            );
+
+            await this.wagerTransactionRepository.save(
+              transaction,
+            );
+
+            return {
+              transactionId: transaction.id,
+              status: transaction.status,
+              balance: wallet.balance.toString(),
+              failureCode:
+                transaction.failureCode,
+              idempotentReplay: false,
+            };
+          }
+
+          /*
+           * O valor precisa ser exatamente o mesmo.
+           */
+          if (
+            !referencedTransaction.money.equals(
+              money,
+            )
+          ) {
+            transaction.reject(
+              FailureCode.InvalidReference,
+              wallet.balance,
+            );
+
+            await this.wagerTransactionRepository.save(
+              transaction,
+            );
+
+            return {
+              transactionId: transaction.id,
+              status: transaction.status,
+              balance: wallet.balance.toString(),
+              failureCode:
+                transaction.failureCode,
+              idempotentReplay: false,
+            };
+          }
+
+          /*
+           * A wallet precisa ser a mesma.
+           */
+          if (
+            referencedTransaction.walletId !==
+            input.walletId
+          ) {
+            transaction.reject(
+              FailureCode.InvalidReference,
+              wallet.balance,
+            );
+
+            await this.wagerTransactionRepository.save(
+              transaction,
+            );
+
+            return {
+              transactionId: transaction.id,
+              status: transaction.status,
+              balance: wallet.balance.toString(),
+              failureCode:
+                transaction.failureCode,
+              idempotentReplay: false,
+            };
+          }
+
+          /*
+           * O player precisa ser o mesmo.
+           */
+          if (
+            referencedTransaction.playerId !==
+            input.playerId
+          ) {
+            transaction.reject(
+              FailureCode.InvalidReference,
+              wallet.balance,
+            );
+
+            await this.wagerTransactionRepository.save(
+              transaction,
+            );
+
+            return {
+              transactionId: transaction.id,
+              status: transaction.status,
+              balance: wallet.balance.toString(),
+              failureCode:
+                transaction.failureCode,
+              idempotentReplay: false,
+            };
+          }
+
+          /*
+           * O round precisa ser exatamente o mesmo
+           * da BET original.
+           */
+          if (
+            referencedTransaction.roundId !==
+            input.roundId
+          ) {
+            transaction.reject(
+              FailureCode.InvalidReference,
+              wallet.balance,
+            );
+
+            await this.wagerTransactionRepository.save(
+              transaction,
+            );
+
+            return {
+              transactionId: transaction.id,
+              status: transaction.status,
+              balance: wallet.balance.toString(),
+              failureCode:
+                transaction.failureCode,
+              idempotentReplay: false,
+            };
+          }
+
+          /*
+           * Uma mesma BET não pode receber dois
+           * REFUNDs processados.
+           *
+           * Essa consulta acontece depois do lock
+           * da wallet, então operações concorrentes
+           * da mesma wallet ficam serializadas.
+           */
+          const previousRefund =
+            await this.wagerTransactionRepository.findProcessedByReferenceTransactionIdAndKind(
+              referencedTransaction.id,
+              WagerTransactionKind.Refund,
+            );
+
+          if (previousRefund) {
+            transaction.reject(
+              FailureCode.DuplicateReversal,
+              wallet.balance,
+            );
+
+            await this.wagerTransactionRepository.save(
+              transaction,
+            );
+
+            return {
+              transactionId: transaction.id,
+              status: transaction.status,
+              balance: wallet.balance.toString(),
+              failureCode:
+                transaction.failureCode,
+              idempotentReplay: false,
+            };
+          }
+
           const balanceChange =
             wallet.credit(money);
 
           const ledgerEntry =
             WalletLedgerEntry.create({
               id: randomUUID(),
-
               walletId: wallet.id,
-
               transactionId: transaction.id,
-
               direction:
                 LedgerDirection.Credit,
-
               money,
-
               balanceBefore:
                 balanceChange.balanceBefore,
-
               balanceAfter:
                 balanceChange.balanceAfter,
             });
@@ -336,8 +466,6 @@ export class ProcessWagerUseCase {
 
         /*
          * BET
-         *
-         * Retira dinheiro da wallet.
          */
         if (
           input.kind === WagerTransactionKind.Bet
@@ -378,19 +506,13 @@ export class ProcessWagerUseCase {
           const ledgerEntry =
             WalletLedgerEntry.create({
               id: randomUUID(),
-
               walletId: wallet.id,
-
               transactionId: transaction.id,
-
               direction:
                 LedgerDirection.Debit,
-
               money,
-
               balanceBefore:
                 balanceChange.balanceBefore,
-
               balanceAfter:
                 balanceChange.balanceAfter,
             });
@@ -422,8 +544,6 @@ export class ProcessWagerUseCase {
 
         /*
          * WIN
-         *
-         * Adiciona dinheiro à wallet.
          */
         const balanceChange =
           wallet.credit(money);
@@ -431,19 +551,13 @@ export class ProcessWagerUseCase {
         const ledgerEntry =
           WalletLedgerEntry.create({
             id: randomUUID(),
-
             walletId: wallet.id,
-
             transactionId: transaction.id,
-
             direction:
               LedgerDirection.Credit,
-
             money,
-
             balanceBefore:
               balanceChange.balanceBefore,
-
             balanceAfter:
               balanceChange.balanceAfter,
           });

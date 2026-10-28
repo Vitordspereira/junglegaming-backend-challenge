@@ -1,8 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { EntityManager } from '@mikro-orm/postgresql';
 
+import {
+  WagerTransaction,
+  WagerTransactionKind,
+  WagerTransactionStatus,
+} from '../../../domain/wagering/wager-transaction.js';
 import type { WagerTransactionRepository } from '../../../application/ports/wager-transaction.repository.js';
-import { WagerTransaction } from '../../../domain/wagering/wager-transaction.js';
+
 import { WagerTransactionEntity } from '../entities/wager-transaction.entity.js';
 import { WagerTransactionMapper } from '../mappers/wager-transaction.mapper.js';
 
@@ -10,19 +15,21 @@ import { WagerTransactionMapper } from '../mappers/wager-transaction.mapper.js';
 export class MikroOrmWagerTransactionRepository
   implements WagerTransactionRepository
 {
-  constructor(private readonly entityManager: EntityManager) {}
+  constructor(
+    private readonly entityManager: EntityManager,
+  ) {}
 
-  async findById(id: string): Promise<WagerTransaction | null> {
+  async findById(
+    id: string,
+  ): Promise<WagerTransaction | null> {
     const entity = await this.entityManager.findOne(
       WagerTransactionEntity,
       { id },
     );
 
-    if (!entity) {
-      return null;
-    }
-
-    return WagerTransactionMapper.toDomain(entity);
+    return entity
+      ? WagerTransactionMapper.toDomain(entity)
+      : null;
   }
 
   async findByProviderAndExternalTransactionId(
@@ -37,11 +44,9 @@ export class MikroOrmWagerTransactionRepository
       },
     );
 
-    if (!entity) {
-      return null;
-    }
-
-    return WagerTransactionMapper.toDomain(entity);
+    return entity
+      ? WagerTransactionMapper.toDomain(entity)
+      : null;
   }
 
   async findByProviderAndIdempotencyKey(
@@ -56,38 +61,57 @@ export class MikroOrmWagerTransactionRepository
       },
     );
 
-    if (!entity) {
-      return null;
-    }
-
-    return WagerTransactionMapper.toDomain(entity);
+    return entity
+      ? WagerTransactionMapper.toDomain(entity)
+      : null;
   }
 
-  async save(transaction: WagerTransaction): Promise<void> {
-    const existingEntity = await this.entityManager.findOne(
+  async findProcessedByReferenceTransactionIdAndKind(
+    referenceTransactionId: string,
+    kind: WagerTransactionKind,
+  ): Promise<WagerTransaction | null> {
+    const entity = await this.entityManager.findOne(
       WagerTransactionEntity,
       {
-        id: transaction.id,
+        referenceTransactionId,
+        kind,
+        status: WagerTransactionStatus.Processed,
       },
     );
 
-    if (!existingEntity) {
-      const newEntity =
-        WagerTransactionMapper.toPersistence(transaction);
+    return entity
+      ? WagerTransactionMapper.toDomain(entity)
+      : null;
+  }
 
-      this.entityManager.persist(newEntity);
+  async save(
+    transaction: WagerTransaction,
+  ): Promise<void> {
+    const existing =
+      await this.entityManager.findOne(
+        WagerTransactionEntity,
+        {
+          id: transaction.id,
+        },
+      );
+
+    const mapped =
+      WagerTransactionMapper.toPersistence(
+        transaction,
+      );
+
+    if (!existing) {
+      this.entityManager.persist(mapped);
       await this.entityManager.flush();
-
       return;
     }
 
-    existingEntity.status = transaction.status;
-    existingEntity.referenceTransactionId =
-      transaction.referenceTransactionId;
-    existingEntity.failureCode = transaction.failureCode;
-    existingEntity.processedAt = transaction.processedAt;
-    existingEntity.resultBalance =
-      transaction.resultBalance?.toString();
+    existing.status = mapped.status;
+    existing.referenceTransactionId =
+      mapped.referenceTransactionId;
+    existing.failureCode = mapped.failureCode;
+    existing.processedAt = mapped.processedAt;
+    existing.resultBalance = mapped.resultBalance;
 
     await this.entityManager.flush();
   }
