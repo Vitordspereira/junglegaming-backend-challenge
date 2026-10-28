@@ -246,4 +246,120 @@ describe('ProcessWagerUseCase integration', () => {
       await entityManager.rollback();
     }
   });
+
+  it('processes a WIN atomically in PostgreSQL', async () => {
+    const entityManager = orm.em.fork();
+
+    await entityManager.begin();
+
+    try {
+      const walletRepository =
+        new MikroOrmWalletRepository(entityManager);
+
+      const wagerTransactionRepository =
+        new MikroOrmWagerTransactionRepository(entityManager);
+
+      const ledgerRepository =
+        new MikroOrmWalletLedgerEntryRepository(entityManager);
+
+      const transactionManager =
+        new MikroOrmTransactionManager(entityManager);
+
+      const useCase = new ProcessWagerUseCase(
+        walletRepository,
+        wagerTransactionRepository,
+        ledgerRepository,
+        transactionManager,
+      );
+
+      const walletId = randomUUID();
+      const playerId = randomUUID();
+      const transactionId = randomUUID();
+
+      const wallet = Wallet.open({
+        id: walletId,
+        playerId,
+        initialBalance: Money.from({
+          amount: '100.00',
+          currency: 'BRL',
+        }),
+      });
+
+      await walletRepository.save(wallet);
+
+      const result = await useCase.execute({
+        id: transactionId,
+        providerId: 'integration-win-provider',
+        externalTransactionId: randomUUID(),
+        idempotencyKey: randomUUID(),
+        payloadHash:
+          'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+        walletId,
+        playerId,
+        roundId: 'round-win',
+        gameId: 'game-win',
+        kind: WagerTransactionKind.Win,
+        amount: '40.00',
+        currency: 'BRL',
+      });
+
+      expect(result.status).toBe(
+        WagerTransactionStatus.Processed,
+      );
+
+      expect(result.balance).toBe('140.00');
+
+      expect(result.idempotentReplay).toBe(false);
+
+      entityManager.clear();
+
+      const persistedWallet =
+        await walletRepository.findById(walletId);
+
+      const persistedTransaction =
+        await wagerTransactionRepository.findById(
+          transactionId,
+        );
+
+      const ledgerEntry =
+        await ledgerRepository.findByWalletAndTransaction(
+          walletId,
+          transactionId,
+        );
+
+      expect(persistedWallet).not.toBeNull();
+
+      expect(
+        persistedWallet?.balance.toString(),
+      ).toBe('140.00');
+
+      expect(persistedWallet?.version).toBe(2);
+
+      expect(persistedTransaction).not.toBeNull();
+
+      expect(persistedTransaction?.status).toBe(
+        WagerTransactionStatus.Processed,
+      );
+
+      expect(
+        persistedTransaction?.resultBalance?.toString(),
+      ).toBe('140.00');
+
+      expect(ledgerEntry).not.toBeNull();
+
+      expect(ledgerEntry?.direction).toBe(
+        LedgerDirection.Credit,
+      );
+
+      expect(
+        ledgerEntry?.balanceBefore.toString(),
+      ).toBe('100.00');
+
+      expect(
+        ledgerEntry?.balanceAfter.toString(),
+      ).toBe('140.00');
+    } finally {
+      await entityManager.rollback();
+    }
+  });
 });

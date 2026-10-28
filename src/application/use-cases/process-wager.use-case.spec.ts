@@ -298,4 +298,95 @@ describe('ProcessWagerUseCase', () => {
       FailureCode.InsufficientFunds,
     );
   });
+
+  it('should process a WIN and credit the wallet balance', async () => {
+    const wallet = Wallet.open({
+      id: '22222222-2222-2222-2222-222222222222',
+      playerId: '33333333-3333-3333-3333-333333333333',
+      initialBalance: Money.from({
+        amount: '100.00',
+        currency: 'BRL',
+      }),
+    });
+
+    let savedTransaction: WagerTransaction | undefined;
+    let appendedLedgerEntry: WalletLedgerEntry | undefined;
+
+    const walletRepository = {
+      findByIdForUpdate: async () => wallet,
+      save: async () => {},
+    } as WalletRepository;
+
+    const wagerRepository = {
+      findByProviderAndIdempotencyKey: async () => null,
+
+      save: async (transaction: WagerTransaction) => {
+        savedTransaction = transaction;
+      },
+    } as WagerTransactionRepository;
+
+    const ledgerRepository = {
+      append: async (entry: WalletLedgerEntry) => {
+        appendedLedgerEntry = entry;
+      },
+    } as WalletLedgerEntryRepository;
+
+    const transactionManager = {
+      execute: async <T>(
+        work: () => Promise<T>,
+      ): Promise<T> => work(),
+    } as TransactionManager;
+
+    const useCase = new ProcessWagerUseCase(
+      walletRepository,
+      wagerRepository,
+      ledgerRepository,
+      transactionManager,
+    );
+
+    const result = await useCase.execute({
+      id: '44444444-4444-4444-4444-444444444444',
+      providerId: 'provider-1',
+      externalTransactionId: 'external-win-1',
+      idempotencyKey: 'key-win-1',
+      payloadHash: 'hash-win-1',
+      walletId: wallet.id,
+      playerId: wallet.playerId,
+      roundId: 'round-1',
+      gameId: 'game-1',
+      kind: WagerTransactionKind.Win,
+      amount: '40.00',
+      currency: 'BRL',
+    });
+
+    expect(result.status).toBe(
+      WagerTransactionStatus.Processed,
+    );
+
+    expect(result.balance).toBe('140.00');
+
+    expect(result.idempotentReplay).toBe(false);
+
+    expect(wallet.balance.toString()).toBe('140.00');
+
+    expect(savedTransaction?.status).toBe(
+      WagerTransactionStatus.Processed,
+    );
+
+    expect(
+      savedTransaction?.resultBalance?.toString(),
+    ).toBe('140.00');
+
+    expect(appendedLedgerEntry?.direction).toBe(
+      LedgerDirection.Credit,
+    );
+
+    expect(
+      appendedLedgerEntry?.balanceBefore.toString(),
+    ).toBe('100.00');
+
+    expect(
+      appendedLedgerEntry?.balanceAfter.toString(),
+    ).toBe('140.00');
+  });
 });
