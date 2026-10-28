@@ -185,12 +185,16 @@ export class WagerTransaction {
     this._status = WagerTransactionStatus.PendingReference;
   }
 
-  reject(code: FailureCode): void {
+  reject(
+    code: FailureCode,
+    resultBalance?: Money,
+  ): void {
     this.assertNotTerminal();
 
     this._status = WagerTransactionStatus.Rejected;
     this._failureCode = code;
     this._processedAt = new Date();
+    this._resultBalance = resultBalance;
   }
 
   fail(code: FailureCode): void {

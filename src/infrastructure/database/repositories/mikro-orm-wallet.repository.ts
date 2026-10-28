@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { EntityManager } from '@mikro-orm/postgresql';
+import {
+  EntityManager,
+  LockMode,
+} from '@mikro-orm/postgresql';
 
 import type { WalletRepository } from '../../../application/ports/wallet.repository.js';
 import { Wallet } from '../../../domain/wallet/wallet.js';
@@ -11,7 +14,26 @@ export class MikroOrmWalletRepository implements WalletRepository {
   constructor(private readonly entityManager: EntityManager) {}
 
   async findById(id: string): Promise<Wallet | null> {
-    const entity = await this.entityManager.findOne(WalletEntity, { id });
+    const entity = await this.entityManager.findOne(
+      WalletEntity,
+      { id },
+    );
+
+    if (!entity) {
+      return null;
+    }
+
+    return WalletMapper.toDomain(entity);
+  }
+
+  async findByIdForUpdate(id: string): Promise<Wallet | null> {
+    const entity = await this.entityManager.findOne(
+      WalletEntity,
+      { id },
+      {
+        lockMode: LockMode.PESSIMISTIC_WRITE,
+      },
+    );
 
     if (!entity) {
       return null;
@@ -24,10 +46,13 @@ export class MikroOrmWalletRepository implements WalletRepository {
     playerId: string,
     currency: string,
   ): Promise<Wallet | null> {
-    const entity = await this.entityManager.findOne(WalletEntity, {
-      playerId,
-      currency,
-    });
+    const entity = await this.entityManager.findOne(
+      WalletEntity,
+      {
+        playerId,
+        currency,
+      },
+    );
 
     if (!entity) {
       return null;
@@ -37,9 +62,12 @@ export class MikroOrmWalletRepository implements WalletRepository {
   }
 
   async save(wallet: Wallet): Promise<void> {
-    const existingEntity = await this.entityManager.findOne(WalletEntity, {
-      id: wallet.id,
-    });
+    const existingEntity = await this.entityManager.findOne(
+      WalletEntity,
+      {
+        id: wallet.id,
+      },
+    );
 
     if (!existingEntity) {
       const newEntity = WalletMapper.toPersistence(wallet);
