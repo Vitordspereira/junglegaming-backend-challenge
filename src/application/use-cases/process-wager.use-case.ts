@@ -120,10 +120,11 @@ export class ProcessWagerUseCase {
 
     if (
       input.kind !== WagerTransactionKind.Bet &&
-      input.kind !== WagerTransactionKind.Win
+      input.kind !== WagerTransactionKind.Win &&
+      input.kind !== WagerTransactionKind.Loss
     ) {
       throw new Error(
-        'Only BET and WIN processing are implemented for now',
+        'Only BET, WIN and LOSS processing are implemented for now',
       );
     }
 
@@ -165,14 +166,50 @@ export class ProcessWagerUseCase {
         }
 
         /*
-         * Salvamos primeiro a transação como PENDING.
+         * Primeiro persistimos a transação como PENDING.
          *
-         * Como tudo está dentro da mesma transação SQL,
-         * qualquer erro posterior fará rollback de tudo.
+         * Se alguma etapa posterior falhar,
+         * a transação SQL desfaz tudo.
          */
         await this.wagerTransactionRepository.save(
           transaction,
         );
+
+        /*
+         * LOSS
+         *
+         * LOSS não altera o saldo.
+         *
+         * O dinheiro da aposta já foi retirado anteriormente
+         * pela BET. Aqui apenas registramos que o jogador perdeu.
+         *
+         * Portanto:
+         *
+         * - não fazemos debit()
+         * - não fazemos credit()
+         * - não criamos ledger
+         * - não alteramos a Wallet
+         */
+        if (
+          input.kind === WagerTransactionKind.Loss
+        ) {
+          transaction.markProcessed(
+            undefined,
+            new Date(),
+            wallet.balance,
+          );
+
+          await this.wagerTransactionRepository.save(
+            transaction,
+          );
+
+          return {
+            transactionId: transaction.id,
+            status: transaction.status,
+            balance: wallet.balance.toString(),
+            idempotentReplay: false,
+          };
+        }
 
         /*
          * BET

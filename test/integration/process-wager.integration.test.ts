@@ -362,4 +362,108 @@ describe('ProcessWagerUseCase integration', () => {
       await entityManager.rollback();
     }
   });
+
+  it('processes a LOSS without changing the wallet or creating ledger', async () => {
+    const entityManager = orm.em.fork();
+
+    await entityManager.begin();
+
+    try {
+      const walletRepository =
+        new MikroOrmWalletRepository(entityManager);
+
+      const wagerTransactionRepository =
+        new MikroOrmWagerTransactionRepository(entityManager);
+
+      const ledgerRepository =
+        new MikroOrmWalletLedgerEntryRepository(entityManager);
+
+      const transactionManager =
+        new MikroOrmTransactionManager(entityManager);
+
+      const useCase = new ProcessWagerUseCase(
+        walletRepository,
+        wagerTransactionRepository,
+        ledgerRepository,
+        transactionManager,
+      );
+
+      const walletId = randomUUID();
+      const playerId = randomUUID();
+      const transactionId = randomUUID();
+
+      const wallet = Wallet.open({
+        id: walletId,
+        playerId,
+        initialBalance: Money.from({
+          amount: '100.00',
+          currency: 'BRL',
+        }),
+      });
+
+      await walletRepository.save(wallet);
+
+      const result = await useCase.execute({
+        id: transactionId,
+        providerId: 'integration-loss-provider',
+        externalTransactionId: randomUUID(),
+        idempotencyKey: randomUUID(),
+        payloadHash:
+          'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+        walletId,
+        playerId,
+        roundId: 'round-loss',
+        gameId: 'game-loss',
+        kind: WagerTransactionKind.Loss,
+        amount: '0.00',
+        currency: 'BRL',
+      });
+
+      expect(result.status).toBe(
+        WagerTransactionStatus.Processed,
+      );
+
+      expect(result.balance).toBe('100.00');
+
+      expect(result.idempotentReplay).toBe(false);
+
+      entityManager.clear();
+
+      const persistedWallet =
+        await walletRepository.findById(walletId);
+
+      const persistedTransaction =
+        await wagerTransactionRepository.findById(
+          transactionId,
+        );
+
+      const ledgerEntry =
+        await ledgerRepository.findByWalletAndTransaction(
+          walletId,
+          transactionId,
+        );
+
+      expect(persistedWallet).not.toBeNull();
+
+      expect(
+        persistedWallet?.balance.toString(),
+      ).toBe('100.00');
+
+      expect(persistedWallet?.version).toBe(1);
+
+      expect(persistedTransaction).not.toBeNull();
+
+      expect(persistedTransaction?.status).toBe(
+        WagerTransactionStatus.Processed,
+      );
+
+      expect(
+        persistedTransaction?.resultBalance?.toString(),
+      ).toBe('100.00');
+
+      expect(ledgerEntry).toBeNull();
+    } finally {
+      await entityManager.rollback();
+    }
+  });
 });
