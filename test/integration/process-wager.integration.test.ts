@@ -95,7 +95,9 @@ describe('ProcessWagerUseCase integration', () => {
       expect(result.status).toBe(
         WagerTransactionStatus.Processed,
       );
+
       expect(result.balance).toBe('75.00');
+
       expect(result.idempotentReplay).toBe(false);
 
       entityManager.clear();
@@ -115,27 +117,131 @@ describe('ProcessWagerUseCase integration', () => {
         );
 
       expect(persistedWallet).not.toBeNull();
-      expect(persistedWallet?.balance.toString()).toBe('75.00');
+
+      expect(
+        persistedWallet?.balance.toString(),
+      ).toBe('75.00');
+
       expect(persistedWallet?.version).toBe(2);
 
       expect(persistedTransaction).not.toBeNull();
+
       expect(persistedTransaction?.status).toBe(
         WagerTransactionStatus.Processed,
       );
+
       expect(
         persistedTransaction?.resultBalance?.toString(),
       ).toBe('75.00');
 
       expect(ledgerEntry).not.toBeNull();
+
       expect(ledgerEntry?.direction).toBe(
         LedgerDirection.Debit,
       );
-      expect(ledgerEntry?.balanceBefore.toString()).toBe(
-        '100.00',
+
+      expect(
+        ledgerEntry?.balanceBefore.toString(),
+      ).toBe('100.00');
+
+      expect(
+        ledgerEntry?.balanceAfter.toString(),
+      ).toBe('75.00');
+    } finally {
+      await entityManager.rollback();
+    }
+  });
+
+  it('rolls back the whole transaction when ledger persistence fails', async () => {
+    const entityManager = orm.em.fork();
+
+    await entityManager.begin();
+
+    try {
+      const walletRepository =
+        new MikroOrmWalletRepository(entityManager);
+
+      const wagerTransactionRepository =
+        new MikroOrmWagerTransactionRepository(entityManager);
+
+      const transactionManager =
+        new MikroOrmTransactionManager(entityManager);
+
+      const failingLedgerRepository = {
+        async findById() {
+          return null;
+        },
+
+        async findByWalletAndTransaction() {
+          return null;
+        },
+
+        async append() {
+          throw new Error('Simulated ledger failure');
+        },
+      };
+
+      const useCase = new ProcessWagerUseCase(
+        walletRepository,
+        wagerTransactionRepository,
+        failingLedgerRepository,
+        transactionManager,
       );
-      expect(ledgerEntry?.balanceAfter.toString()).toBe(
-        '75.00',
+
+      const walletId = randomUUID();
+      const playerId = randomUUID();
+      const transactionId = randomUUID();
+
+      const wallet = Wallet.open({
+        id: walletId,
+        playerId,
+        initialBalance: Money.from({
+          amount: '100.00',
+          currency: 'BRL',
+        }),
+      });
+
+      await walletRepository.save(wallet);
+
+      await expect(
+        useCase.execute({
+          id: transactionId,
+          providerId: 'rollback-provider',
+          externalTransactionId: randomUUID(),
+          idempotencyKey: randomUUID(),
+          payloadHash:
+            'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          walletId,
+          playerId,
+          roundId: 'round-rollback',
+          gameId: 'game-rollback',
+          kind: WagerTransactionKind.Bet,
+          amount: '25.00',
+          currency: 'BRL',
+        }),
+      ).rejects.toThrow(
+        'Simulated ledger failure',
       );
+
+      entityManager.clear();
+
+      const persistedWallet =
+        await walletRepository.findById(walletId);
+
+      const persistedTransaction =
+        await wagerTransactionRepository.findById(
+          transactionId,
+        );
+
+      expect(persistedWallet).not.toBeNull();
+
+      expect(
+        persistedWallet?.balance.toString(),
+      ).toBe('100.00');
+
+      expect(persistedWallet?.version).toBe(1);
+
+      expect(persistedTransaction).toBeNull();
     } finally {
       await entityManager.rollback();
     }
