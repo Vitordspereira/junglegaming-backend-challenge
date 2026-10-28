@@ -121,10 +121,11 @@ export class ProcessWagerUseCase {
     if (
       input.kind !== WagerTransactionKind.Bet &&
       input.kind !== WagerTransactionKind.Win &&
-      input.kind !== WagerTransactionKind.Loss
+      input.kind !== WagerTransactionKind.Loss &&
+      input.kind !== WagerTransactionKind.Refund
     ) {
       throw new Error(
-        'Only BET, WIN and LOSS processing are implemented for now',
+        'Only BET, WIN, LOSS and REFUND processing are implemented for now',
       );
     }
 
@@ -166,10 +167,9 @@ export class ProcessWagerUseCase {
         }
 
         /*
-         * Primeiro persistimos a transação como PENDING.
+         * A nova transação começa como PENDING.
          *
-         * Se alguma etapa posterior falhar,
-         * a transação SQL desfaz tudo.
+         * Tudo continua dentro da mesma transação SQL.
          */
         await this.wagerTransactionRepository.save(
           transaction,
@@ -178,17 +178,7 @@ export class ProcessWagerUseCase {
         /*
          * LOSS
          *
-         * LOSS não altera o saldo.
-         *
-         * O dinheiro da aposta já foi retirado anteriormente
-         * pela BET. Aqui apenas registramos que o jogador perdeu.
-         *
-         * Portanto:
-         *
-         * - não fazemos debit()
-         * - não fazemos credit()
-         * - não criamos ledger
-         * - não alteramos a Wallet
+         * Não altera saldo e não cria ledger.
          */
         if (
           input.kind === WagerTransactionKind.Loss
@@ -207,6 +197,105 @@ export class ProcessWagerUseCase {
             transactionId: transaction.id,
             status: transaction.status,
             balance: wallet.balance.toString(),
+            idempotentReplay: false,
+          };
+        }
+
+        /*
+         * REFUND
+         *
+         * Procura a BET original usando:
+         *
+         * providerId + referenceExternalTransactionId
+         */
+        if (
+          input.kind === WagerTransactionKind.Refund
+        ) {
+          if (!input.referenceExternalTransactionId) {
+            throw new Error(
+              'REFUND requires a reference transaction',
+            );
+          }
+
+          const referencedTransaction =
+            await this.wagerTransactionRepository.findByProviderAndExternalTransactionId(
+              input.providerId,
+              input.referenceExternalTransactionId,
+            );
+
+          /*
+           * Por enquanto tratamos apenas o caminho feliz.
+           *
+           * No próximo passo, ausência de referência será
+           * transformada em PENDING_REFERENCE.
+           */
+          if (!referencedTransaction) {
+            throw new Error(
+              'Reference transaction not found',
+            );
+          }
+
+          /*
+           * REFUND somente pode devolver uma BET processada.
+           *
+           * As outras validações mais detalhadas serão
+           * adicionadas nos próximos testes.
+           */
+          if (
+            referencedTransaction.kind !==
+              WagerTransactionKind.Bet ||
+            referencedTransaction.status !==
+              WagerTransactionStatus.Processed
+          ) {
+            throw new Error(
+              'Invalid REFUND reference',
+            );
+          }
+
+          const balanceChange =
+            wallet.credit(money);
+
+          const ledgerEntry =
+            WalletLedgerEntry.create({
+              id: randomUUID(),
+
+              walletId: wallet.id,
+
+              transactionId: transaction.id,
+
+              direction:
+                LedgerDirection.Credit,
+
+              money,
+
+              balanceBefore:
+                balanceChange.balanceBefore,
+
+              balanceAfter:
+                balanceChange.balanceAfter,
+            });
+
+          transaction.markProcessed(
+            referencedTransaction.id,
+            new Date(),
+            balanceChange.balanceAfter,
+          );
+
+          await this.walletRepository.save(wallet);
+
+          await this.ledgerRepository.append(
+            ledgerEntry,
+          );
+
+          await this.wagerTransactionRepository.save(
+            transaction,
+          );
+
+          return {
+            transactionId: transaction.id,
+            status: transaction.status,
+            balance:
+              balanceChange.balanceAfter.toString(),
             idempotentReplay: false,
           };
         }

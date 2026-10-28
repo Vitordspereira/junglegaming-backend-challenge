@@ -192,9 +192,7 @@ describe('ProcessWagerUseCase', () => {
     );
 
     expect(result.balance).toBe('75.00');
-
     expect(result.idempotentReplay).toBe(false);
-
     expect(wallet.balance.toString()).toBe('75.00');
 
     expect(savedTransaction?.status).toBe(
@@ -287,7 +285,6 @@ describe('ProcessWagerUseCase', () => {
     );
 
     expect(wallet.balance.toString()).toBe('20.00');
-
     expect(ledgerAppendCalls).toBe(0);
 
     expect(savedTransaction?.status).toBe(
@@ -364,9 +361,7 @@ describe('ProcessWagerUseCase', () => {
     );
 
     expect(result.balance).toBe('140.00');
-
     expect(result.idempotentReplay).toBe(false);
-
     expect(wallet.balance.toString()).toBe('140.00');
 
     expect(savedTransaction?.status).toBe(
@@ -459,15 +454,12 @@ describe('ProcessWagerUseCase', () => {
     );
 
     expect(result.balance).toBe('100.00');
-
     expect(result.idempotentReplay).toBe(false);
 
     expect(wallet.balance.toString()).toBe('100.00');
-
     expect(wallet.version).toBe(1);
 
     expect(walletSaveCalls).toBe(0);
-
     expect(ledgerAppendCalls).toBe(0);
 
     expect(savedTransaction?.status).toBe(
@@ -476,6 +468,140 @@ describe('ProcessWagerUseCase', () => {
 
     expect(
       savedTransaction?.resultBalance?.toString(),
+    ).toBe('100.00');
+  });
+
+  it('should process a REFUND and credit back a processed BET', async () => {
+    const wallet = Wallet.open({
+      id: '22222222-2222-2222-2222-222222222222',
+      playerId: '33333333-3333-3333-3333-333333333333',
+      initialBalance: Money.from({
+        amount: '75.00',
+        currency: 'BRL',
+      }),
+    });
+
+    const referencedBet = WagerTransaction.create({
+      id: '66666666-6666-6666-6666-666666666666',
+      providerId: 'provider-1',
+      externalTransactionId: 'external-bet-refund-1',
+      idempotencyKey: 'key-original-bet-1',
+      payloadHash: 'hash-original-bet-1',
+      walletId: wallet.id,
+      playerId: wallet.playerId,
+      roundId: 'round-1',
+      gameId: 'game-1',
+      kind: WagerTransactionKind.Bet,
+      money: Money.from({
+        amount: '25.00',
+        currency: 'BRL',
+      }),
+    });
+
+    referencedBet.markProcessed(
+      undefined,
+      new Date(),
+      Money.from({
+        amount: '75.00',
+        currency: 'BRL',
+      }),
+    );
+
+    let savedTransaction: WagerTransaction | undefined;
+    let appendedLedgerEntry: WalletLedgerEntry | undefined;
+
+    const walletRepository = {
+      findByIdForUpdate: async () => wallet,
+      save: async () => {},
+    } as WalletRepository;
+
+    const wagerRepository = {
+      findByProviderAndIdempotencyKey: async () => null,
+
+      findByProviderAndExternalTransactionId: async (
+        providerId: string,
+        externalTransactionId: string,
+      ) => {
+        if (
+          providerId === 'provider-1' &&
+          externalTransactionId ===
+            'external-bet-refund-1'
+        ) {
+          return referencedBet;
+        }
+
+        return null;
+      },
+
+      save: async (transaction: WagerTransaction) => {
+        savedTransaction = transaction;
+      },
+    } as WagerTransactionRepository;
+
+    const ledgerRepository = {
+      append: async (entry: WalletLedgerEntry) => {
+        appendedLedgerEntry = entry;
+      },
+    } as WalletLedgerEntryRepository;
+
+    const transactionManager = {
+      execute: async <T>(
+        work: () => Promise<T>,
+      ): Promise<T> => work(),
+    } as TransactionManager;
+
+    const useCase = new ProcessWagerUseCase(
+      walletRepository,
+      wagerRepository,
+      ledgerRepository,
+      transactionManager,
+    );
+
+    const result = await useCase.execute({
+      id: '77777777-7777-7777-7777-777777777777',
+      providerId: 'provider-1',
+      externalTransactionId: 'external-refund-1',
+      idempotencyKey: 'key-refund-1',
+      payloadHash: 'hash-refund-1',
+      walletId: wallet.id,
+      playerId: wallet.playerId,
+      roundId: 'round-1',
+      gameId: 'game-1',
+      kind: WagerTransactionKind.Refund,
+      amount: '25.00',
+      currency: 'BRL',
+      referenceExternalTransactionId:
+        'external-bet-refund-1',
+    });
+
+    expect(result.status).toBe(
+      WagerTransactionStatus.Processed,
+    );
+
+    expect(result.balance).toBe('100.00');
+
+    expect(result.idempotentReplay).toBe(false);
+
+    expect(wallet.balance.toString()).toBe('100.00');
+
+    expect(savedTransaction?.status).toBe(
+      WagerTransactionStatus.Processed,
+    );
+
+    expect(
+      savedTransaction?.resultBalance?.toString(),
+    ).toBe('100.00');
+
+    expect(appendedLedgerEntry?.direction).toBe(
+      LedgerDirection.Credit,
+    );
+
+    expect(
+      appendedLedgerEntry?.balanceBefore.toString(),
+    ).toBe('75.00');
+
+    expect(
+      appendedLedgerEntry?.balanceAfter.toString(),
     ).toBe('100.00');
   });
 });

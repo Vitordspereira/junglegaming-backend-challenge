@@ -12,6 +12,7 @@ import { MikroORM } from '@mikro-orm/postgresql';
 import { ProcessWagerUseCase } from '../../src/application/use-cases/process-wager.use-case.js';
 import { Money } from '../../src/domain/shared/value-objects/money.js';
 import {
+  WagerTransaction,
   WagerTransactionKind,
   WagerTransactionStatus,
 } from '../../src/domain/wagering/wager-transaction.js';
@@ -462,6 +463,174 @@ describe('ProcessWagerUseCase integration', () => {
       ).toBe('100.00');
 
       expect(ledgerEntry).toBeNull();
+    } finally {
+      await entityManager.rollback();
+    }
+  });
+
+  it('processes a REFUND of a processed BET atomically in PostgreSQL', async () => {
+    const entityManager = orm.em.fork();
+
+    await entityManager.begin();
+
+    try {
+      const walletRepository =
+        new MikroOrmWalletRepository(entityManager);
+
+      const wagerTransactionRepository =
+        new MikroOrmWagerTransactionRepository(entityManager);
+
+      const ledgerRepository =
+        new MikroOrmWalletLedgerEntryRepository(entityManager);
+
+      const transactionManager =
+        new MikroOrmTransactionManager(entityManager);
+
+      const useCase = new ProcessWagerUseCase(
+        walletRepository,
+        wagerTransactionRepository,
+        ledgerRepository,
+        transactionManager,
+      );
+
+      const walletId = randomUUID();
+      const playerId = randomUUID();
+
+      const betTransactionId = randomUUID();
+      const refundTransactionId = randomUUID();
+
+      const betExternalTransactionId = randomUUID();
+
+      const wallet = Wallet.open({
+        id: walletId,
+        playerId,
+        initialBalance: Money.from({
+          amount: '75.00',
+          currency: 'BRL',
+        }),
+      });
+
+      await walletRepository.save(wallet);
+
+      /*
+       * Criamos uma BET anterior já processada.
+       *
+       * Ela representa uma aposta de 25.00 que deixou
+       * a wallet com saldo de 75.00.
+       */
+      const referencedBet = WagerTransaction.create({
+        id: betTransactionId,
+        providerId: 'integration-refund-provider',
+        externalTransactionId:
+          betExternalTransactionId,
+        idempotencyKey: randomUUID(),
+        payloadHash:
+          '1111111111111111111111111111111111111111111111111111111111111111',
+        walletId,
+        playerId,
+        roundId: 'round-refund',
+        gameId: 'game-refund',
+        kind: WagerTransactionKind.Bet,
+        money: Money.from({
+          amount: '25.00',
+          currency: 'BRL',
+        }),
+      });
+
+      referencedBet.markProcessed(
+        undefined,
+        new Date(),
+        Money.from({
+          amount: '75.00',
+          currency: 'BRL',
+        }),
+      );
+
+      await wagerTransactionRepository.save(
+        referencedBet,
+      );
+
+      /*
+       * Agora processamos o REFUND de 25.00
+       * apontando para a BET acima.
+       */
+      const result = await useCase.execute({
+        id: refundTransactionId,
+        providerId: 'integration-refund-provider',
+        externalTransactionId: randomUUID(),
+        idempotencyKey: randomUUID(),
+        payloadHash:
+          '2222222222222222222222222222222222222222222222222222222222222222',
+        walletId,
+        playerId,
+        roundId: 'round-refund',
+        gameId: 'game-refund',
+        kind: WagerTransactionKind.Refund,
+        amount: '25.00',
+        currency: 'BRL',
+        referenceExternalTransactionId:
+          betExternalTransactionId,
+      });
+
+      expect(result.status).toBe(
+        WagerTransactionStatus.Processed,
+      );
+
+      expect(result.balance).toBe('100.00');
+
+      expect(result.idempotentReplay).toBe(false);
+
+      entityManager.clear();
+
+      const persistedWallet =
+        await walletRepository.findById(walletId);
+
+      const persistedRefund =
+        await wagerTransactionRepository.findById(
+          refundTransactionId,
+        );
+
+      const ledgerEntry =
+        await ledgerRepository.findByWalletAndTransaction(
+          walletId,
+          refundTransactionId,
+        );
+
+      expect(persistedWallet).not.toBeNull();
+
+      expect(
+        persistedWallet?.balance.toString(),
+      ).toBe('100.00');
+
+      expect(persistedWallet?.version).toBe(2);
+
+      expect(persistedRefund).not.toBeNull();
+
+      expect(persistedRefund?.status).toBe(
+        WagerTransactionStatus.Processed,
+      );
+
+      expect(
+        persistedRefund?.referenceTransactionId,
+      ).toBe(betTransactionId);
+
+      expect(
+        persistedRefund?.resultBalance?.toString(),
+      ).toBe('100.00');
+
+      expect(ledgerEntry).not.toBeNull();
+
+      expect(ledgerEntry?.direction).toBe(
+        LedgerDirection.Credit,
+      );
+
+      expect(
+        ledgerEntry?.balanceBefore.toString(),
+      ).toBe('75.00');
+
+      expect(
+        ledgerEntry?.balanceAfter.toString(),
+      ).toBe('100.00');
     } finally {
       await entityManager.rollback();
     }
