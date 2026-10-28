@@ -10,6 +10,7 @@ import { CreateWalletUseCase } from './application/use-cases/create-wallet.use-c
 import { GetWalletUseCase } from './application/use-cases/get-wallet.use-case.js';
 import { ListWalletLedgerUseCase } from './application/use-cases/list-wallet-ledger.use-case.js';
 import { GetWagerTransactionUseCase } from './application/use-cases/get-wager-transaction.use-case.js';
+import { GetProviderWagerTransactionUseCase } from './application/use-cases/get-provider-wager-transaction.use-case.js';
 
 import { MikroOrmWalletRepository } from './infrastructure/database/repositories/mikro-orm-wallet.repository.js';
 import { MikroOrmWagerTransactionRepository } from './infrastructure/database/repositories/mikro-orm-wager-transaction.repository.js';
@@ -18,6 +19,7 @@ import { MikroOrmTransactionManager } from './infrastructure/database/mikro-orm-
 
 import { WalletsController } from './presentation/http/wallets.controller.js';
 import { WageringTransactionsController } from './presentation/http/wagering-transactions.controller.js';
+import { ProviderWageringTransactionsController } from './presentation/http/provider-wagering-transactions.controller.js';
 
 import mikroOrmConfig from './mikro-orm.config.js';
 
@@ -29,6 +31,7 @@ import mikroOrmConfig from './mikro-orm.config.js';
   controllers: [
     WalletsController,
     WageringTransactionsController,
+    ProviderWageringTransactionsController,
   ],
 
   providers: [
@@ -36,6 +39,7 @@ import mikroOrmConfig from './mikro-orm.config.js';
     GetWalletUseCase,
     ListWalletLedgerUseCase,
     GetWagerTransactionUseCase,
+    GetProviderWagerTransactionUseCase,
 
     {
       provide: WALLET_REPOSITORY,
