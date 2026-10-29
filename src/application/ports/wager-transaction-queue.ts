@@ -7,7 +7,7 @@ export const WAGER_TRANSACTION_QUEUE =
 
 export interface ReceivedQueueMessage {
   receiptHandle: string;
-
+  receiveCount: number;
   body:
     WagerTransactionRequestedMessage;
 }
@@ -18,9 +18,15 @@ export interface WagerTransactionQueue {
       WagerTransactionRequestedMessage,
   ): Promise<void>;
 
-  receive(): Promise<
-    ReceivedQueueMessage[]
-  >;
+  sendToDeadLetter(
+    message:
+      WagerTransactionRequestedMessage,
+  ): Promise<void>;
+
+  receive():
+    Promise<
+      ReceivedQueueMessage[]
+    >;
 
   acknowledge(
     receiptHandle: string,
@@ -28,8 +34,10 @@ export interface WagerTransactionQueue {
 
   changeVisibility(
     receiptHandle: string,
-    visibilityTimeoutSeconds: number,
+    visibilityTimeoutSeconds:
+      number,
   ): Promise<void>;
 
-  isReachable(): Promise<boolean>;
+  isReachable():
+    Promise<boolean>;
 }

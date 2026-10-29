@@ -24,9 +24,14 @@ import type {
 export class SqsWagerTransactionQueue
   implements WagerTransactionQueue
 {
-  private readonly client: SQSClient;
+  private readonly client:
+    SQSClient;
 
-  private readonly queueUrl: string;
+  private readonly queueUrl:
+    string;
+
+  private readonly deadLetterQueueUrl:
+    string;
 
   constructor() {
     const endpoint =
@@ -38,8 +43,14 @@ export class SqsWagerTransactionQueue
       'us-east-1';
 
     this.queueUrl =
-      process.env.WAGER_TRANSACTION_QUEUE_URL ??
+      process.env
+        .WAGER_TRANSACTION_QUEUE_URL ??
       'http://localhost:4566/000000000000/wager-transactions.fifo';
+
+    this.deadLetterQueueUrl =
+      process.env
+        .WAGER_TRANSACTION_DLQ_URL ??
+      'http://localhost:4566/000000000000/wager-transactions-dlq.fifo';
 
     this.client =
       new SQSClient({
@@ -49,23 +60,49 @@ export class SqsWagerTransactionQueue
 
         credentials: {
           accessKeyId:
-            process.env.AWS_ACCESS_KEY_ID ??
+            process.env
+              .AWS_ACCESS_KEY_ID ??
             'test',
 
           secretAccessKey:
-            process.env.AWS_SECRET_ACCESS_KEY ??
+            process.env
+              .AWS_SECRET_ACCESS_KEY ??
             'test',
         },
       });
   }
 
   async send(
-    message: WagerTransactionRequestedMessage,
+    message:
+      WagerTransactionRequestedMessage,
   ): Promise<void> {
     await this.client.send(
       new SendMessageCommand({
         QueueUrl:
           this.queueUrl,
+
+        MessageBody:
+          JSON.stringify(
+            message,
+          ),
+
+        MessageGroupId:
+          message.data.walletId,
+
+        MessageDeduplicationId:
+          message.messageId,
+      }),
+    );
+  }
+
+  async sendToDeadLetter(
+    message:
+      WagerTransactionRequestedMessage,
+  ): Promise<void> {
+    await this.client.send(
+      new SendMessageCommand({
+        QueueUrl:
+          this.deadLetterQueueUrl,
 
         MessageBody:
           JSON.stringify(
@@ -98,6 +135,10 @@ export class SqsWagerTransactionQueue
 
           VisibilityTimeout:
             30,
+
+          MessageSystemAttributeNames: [
+            'ApproximateReceiveCount',
+          ],
         }),
       );
 
@@ -114,19 +155,42 @@ export class SqsWagerTransactionQueue
         } =>
           typeof message.Body ===
             'string' &&
-          typeof message.ReceiptHandle ===
+          typeof message
+            .ReceiptHandle ===
             'string',
       )
       .map(
-        (message) => ({
-          receiptHandle:
-            message.ReceiptHandle,
+        (message) => {
+          const parsedReceiveCount =
+            Number.parseInt(
+              message.Attributes?.[
+                'ApproximateReceiveCount'
+              ] ?? '1',
+              10,
+            );
 
-          body:
-            JSON.parse(
-              message.Body,
-            ) as WagerTransactionRequestedMessage,
-        }),
+          const receiveCount =
+            Number.isNaN(
+              parsedReceiveCount,
+            )
+              ? 1
+              : Math.max(
+                  1,
+                  parsedReceiveCount,
+                );
+
+          return {
+            receiptHandle:
+              message.ReceiptHandle,
+
+            receiveCount,
+
+            body:
+              JSON.parse(
+                message.Body,
+              ) as WagerTransactionRequestedMessage,
+          };
+        },
       );
   }
 
@@ -146,7 +210,8 @@ export class SqsWagerTransactionQueue
 
   async changeVisibility(
     receiptHandle: string,
-    visibilityTimeoutSeconds: number,
+    visibilityTimeoutSeconds:
+      number,
   ): Promise<void> {
     await this.client.send(
       new ChangeMessageVisibilityCommand({
@@ -162,7 +227,8 @@ export class SqsWagerTransactionQueue
     );
   }
 
-  async isReachable(): Promise<boolean> {
+  async isReachable():
+    Promise<boolean> {
     try {
       await this.client.send(
         new GetQueueAttributesCommand({
