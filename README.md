@@ -1,132 +1,603 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Jungle Backend Challenge
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Projeto desenvolvido para o desafio técnico de Backend da Jungle.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+A ideia principal foi criar uma API para trabalhar com carteiras e transações de apostas, tentando garantir que as operações financeiras fossem seguras e consistentes.
 
-## Description
+Durante o desenvolvimento, trabalhei principalmente com:
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- wallets;
+- transações de apostas;
+- ledger de movimentações;
+- idempotência;
+- PostgreSQL;
+- AWS SQS;
+- retries;
+- processamento assíncrono;
+- testes unitários, de integração e E2E.
 
-## Project setup
+---
 
-```bash
-$ bun install
+## Tecnologias
+
+O projeto foi desenvolvido utilizando:
+
+- TypeScript
+- NestJS
+- Bun
+- PostgreSQL
+- MikroORM
+- AWS SQS
+- Decimal.js
+- Supertest
+- Oxlint
+
+---
+
+# Funcionalidades
+
+## Wallets
+
+A aplicação permite:
+
+- criar uma wallet;
+- consultar uma wallet;
+- consultar as movimentações do ledger;
+- reconciliar o saldo da wallet com o histórico de movimentações.
+
+As alterações de saldo ficam registradas no ledger para manter um histórico das operações realizadas.
+
+---
+
+# Transações
+
+O sistema suporta os seguintes tipos de transação:
+
+```text id="7xgka1"
+BET
+WIN
+LOSS
+REFUND
+ROLLBACK
 ```
 
-## Compile and run the project
+## BET
 
-```bash
-# development
-$ bun run start
+Uma BET realiza um débito na wallet.
 
-# watch mode
-$ bun run start:dev
+Antes de processar, o sistema verifica pontos como:
 
-# production mode
-$ bun run start:prod
+- existência da wallet;
+- saldo disponível;
+- moeda;
+- idempotência.
+
+Caso a operação seja válida, o saldo é atualizado e a movimentação é registrada no ledger.
+
+---
+
+## WIN
+
+Uma WIN adiciona saldo na wallet.
+
+Também é criada uma movimentação de crédito no ledger.
+
+---
+
+## LOSS
+
+Uma LOSS representa uma aposta que foi perdida.
+
+Nesse caso, o saldo não é alterado novamente porque o valor da aposta já foi debitado anteriormente através do `BET`.
+
+---
+
+## REFUND
+
+Um REFUND devolve o valor de uma aposta.
+
+Antes de processar, algumas informações da transação original são validadas, como:
+
+- wallet;
+- player;
+- round;
+- currency;
+- valor;
+- tipo da transação.
+
+Também é evitado que o mesmo BET seja reembolsado duas vezes.
+
+---
+
+## ROLLBACK
+
+O ROLLBACK serve para desfazer uma transação anterior.
+
+Por exemplo:
+
+```text id="mw35h3"
+BET
+DEBIT 25.00
+
+ROLLBACK
+CREDIT 25.00
 ```
 
-## Run tests
+No caso de uma transação que originalmente realizou crédito:
 
-```bash
-# unit tests
-$ bun run test
+```text id="61zk31"
+WIN
+CREDIT 25.00
 
-# e2e tests
-$ bun run test:e2e
-
-# test coverage
-$ bun run test:cov
+ROLLBACK
+DEBIT 25.00
 ```
 
-## Deployment
+O sistema também verifica se o rollback já foi realizado e se a operação deixaria o saldo da wallet inválido.
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+---
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+# Idempotência
 
-```bash
-$ bun install -g @nestjs/mau
-$ mau deploy
+O endpoint de processamento de transações utiliza o header:
+
+```text id="xk0bvk"
+Idempotency-Key
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Isso evita que a mesma operação seja processada duas vezes.
 
-## Observability
+Caso uma requisição seja enviada novamente com a mesma chave e o mesmo conteúdo, o resultado anterior pode ser retornado.
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
+Se a mesma chave for utilizada com dados diferentes, a API retorna:
 
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
-
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
-
-To add it to this project, run this and approve the code it prints at [observe.nestjs.com/link](https://observe.nestjs.com/link) - signing up for free if you have no account:
-
-```bash
-$ npx @nestjs/observe link
+```text id="fe7ikv"
+HTTP 409 Conflict
 ```
 
-It installs `@nestjs/observe`, wires it into `AppModule` and `main.ts`, and writes the app key and secret into `.env`, which every `nest start` script (`start`, `start:dev`, `start:debug`) then loads. In production, set `OBSERVE_APP_KEY` and `OBSERVE_APP_SECRET` in the environment instead.
+---
 
-Or do it by hand:
+# Ledger
 
-```bash
-$ bun install @nestjs/observe
+As alterações financeiras são registradas no ledger.
+
+Exemplo:
+
+```text id="otssz1"
+balanceBefore: 100.00
+direction: DEBIT
+amount: 25.00
+balanceAfter: 75.00
 ```
 
-Then follow the [setup guide](https://docs.nestjs.com/observability/sdk) - it takes a single import and an app key.
+Com isso é possível acompanhar como o saldo foi alterado ao longo das transações.
 
-The free plan needs no payment details and covers 300,000 events a month. You can also browse the [live demo](https://www.observe-demo.nestjs.com/dashboard) first - the whole dashboard over a busy service's data, with nothing to install.
+---
 
-## Resources
+# Reconciliação
 
-Check out a few resources that may come in handy when working with NestJS:
+Foi criado também um endpoint de reconciliação.
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observe](https://observe.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+Ele compara:
 
-## Support
+```text id="6dhz2x"
+saldo atual da wallet
+        x
+saldo calculado pelo ledger
+```
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+O resultado informa se os valores estão consistentes ou se existe alguma diferença.
 
-## Stay in touch
+---
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+# PENDING_REFERENCE
 
-## License
+Durante o desenvolvimento também foi tratado o caso em que um REFUND ou ROLLBACK chega antes da transação que ele referencia.
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Exemplo:
+
+```text id="gxf6g8"
+REFUND chega
+     |
+     v
+BET ainda não existe
+```
+
+Nesse caso, a transação não é rejeitada imediatamente.
+
+Ela recebe o status:
+
+```text id="rhf8yy"
+PENDING_REFERENCE
+```
+
+e fica aguardando uma nova tentativa de processamento.
+
+---
+
+# Retry de referências pendentes
+
+Os retries são persistidos no PostgreSQL.
+
+Foi criada uma estrutura que mantém informações como:
+
+```text id="rc4d6h"
+transaction_id
+attempts
+next_attempt_at
+created_at
+```
+
+O intervalo entre as tentativas aumenta utilizando exponential backoff.
+
+Fluxo simplificado:
+
+```text id="0mr1py"
+PENDING_REFERENCE
+        |
+        v
+aguarda próximo retry
+        |
+        v
+tenta processar novamente
+        |
+        +--> encontrou referência -> processa
+        |
+        +--> não encontrou -> agenda outro retry
+```
+
+Como os dados ficam no banco, os retries não são perdidos caso a aplicação seja reiniciada.
+
+---
+
+# Transactional Outbox
+
+Para evitar inconsistência entre o banco de dados e a publicação de mensagens, foi utilizado o padrão Transactional Outbox.
+
+Durante uma operação financeira, são salvos na mesma transação:
+
+```text id="up2d4x"
+Wallet
+WagerTransaction
+Ledger
+OutboxMessage
+```
+
+Depois do commit, as mensagens pendentes podem ser publicadas no SQS.
+
+Assim, caso o SQS esteja temporariamente indisponível, a operação financeira não perde o evento que precisa ser enviado.
+
+---
+
+# Inbox
+
+Também foi implementado um mecanismo de Inbox para evitar que a mesma mensagem recebida seja processada mais de uma vez.
+
+A identificação considera:
+
+```text id="0wt8cz"
+consumerName
++
+messageId
+```
+
+---
+
+# AWS SQS
+
+O projeto utiliza AWS SQS para comunicação assíncrona.
+
+Foram implementados cenários de:
+
+- envio de mensagens;
+- recebimento;
+- acknowledgement;
+- retry;
+- tratamento de falhas;
+- Dead Letter Queue.
+
+Também existem testes de integração utilizando SQS.
+
+---
+
+# Concorrência
+
+Um dos cenários testados foi o processamento de duas apostas ao mesmo tempo.
+
+Exemplo:
+
+```text id="20hk1n"
+Saldo: 100
+
+BET A: 80
+BET B: 80
+```
+
+As duas operações não podem ser aprovadas, porque isso deixaria o saldo negativo.
+
+O teste verifica que apenas uma delas consegue utilizar o saldo disponível.
+
+---
+
+# Health Check
+
+A aplicação possui verificação de:
+
+## Liveness
+
+Indica se a aplicação está funcionando.
+
+## Readiness
+
+Verifica se as dependências principais estão disponíveis.
+
+Atualmente são verificadas:
+
+```text id="i017qz"
+PostgreSQL
+SQS
+```
+
+---
+
+# Estrutura do projeto
+
+O projeto está organizado da seguinte forma:
+
+```text id="xq1z73"
+src/
+├── application/
+├── domain/
+├── infrastructure/
+├── migrations/
+└── presentation/
+```
+
+## Domain
+
+Contém as entidades e regras de negócio.
+
+Exemplos:
+
+```text id="8rswhu"
+Wallet
+WalletLedgerEntry
+WagerTransaction
+Money
+PendingReferenceRetry
+OutboxMessage
+InboxMessage
+```
+
+## Application
+
+Contém os casos de uso da aplicação.
+
+Exemplos:
+
+```text id="mt6mz7"
+CreateWalletUseCase
+GetWalletUseCase
+ListWalletLedgerUseCase
+ProcessWagerUseCase
+ReconcileWalletUseCase
+ProcessPendingReferenceRetriesUseCase
+PublishOutboxUseCase
+```
+
+## Infrastructure
+
+Contém implementações relacionadas a:
+
+- PostgreSQL;
+- MikroORM;
+- repositories;
+- SQS;
+- workers;
+- health checks.
+
+## Presentation
+
+Contém os controllers HTTP.
+
+---
+
+# Endpoints principais
+
+## Criar wallet
+
+```http id="7efsbq"
+POST /wallets
+```
+
+## Consultar wallet
+
+```http id="pn2ycm"
+GET /wallets/:walletId
+```
+
+## Consultar ledger
+
+```http id="f5hyv8"
+GET /wallets/:walletId/ledger
+```
+
+## Reconciliação
+
+```http id="lysi19"
+POST /wallets/:walletId/reconciliation
+```
+
+## Processar transação
+
+```http id="3eggbg"
+POST /wagering/transactions
+```
+
+Esse endpoint utiliza o header:
+
+```text id="zkiawl"
+Idempotency-Key
+```
+
+---
+
+# Instalação
+
+Instale as dependências:
+
+```bash id="u9sa5e"
+bun install
+```
+
+---
+
+# Banco de dados
+
+O projeto utiliza PostgreSQL com MikroORM.
+
+Para executar as migrations:
+
+```bash id="6p36yd"
+bunx mikro-orm migration:up
+```
+
+---
+
+# Executando o projeto
+
+Modo de desenvolvimento:
+
+```bash id="6vw9as"
+bun run start:dev
+```
+
+Build:
+
+```bash id="dmd05r"
+bun run build
+```
+
+Produção:
+
+```bash id="mzx5py"
+bun run start:prod
+```
+
+---
+
+# Testes
+
+Para executar todos os testes:
+
+```bash id="3081dm"
+bun run test
+```
+
+Resultado atual:
+
+```text id="v8v46o"
+213 testes
+213 passaram
+0 falharam
+```
+
+---
+
+## Testes E2E
+
+```bash id="k6fdrm"
+bun run test:e2e
+```
+
+Resultado:
+
+```text id="qrb1ac"
+20 testes
+20 passaram
+0 falharam
+```
+
+---
+
+## Cobertura
+
+Para executar os testes com cobertura:
+
+```bash id="c480in"
+bun run test:cov
+```
+
+Cobertura atual:
+
+```text id="x7r7aj"
+Functions: 97.22%
+Lines: 96.62%
+```
+
+---
+
+# Lint
+
+Para verificar o código:
+
+```bash id="uckzns"
+bun run lint
+```
+
+Resultado atual:
+
+```text id="mnc2ne"
+0 warnings
+0 errors
+```
+
+---
+
+# Alguns cenários testados
+
+Durante o desenvolvimento foram criados testes para situações como:
+
+- criação de wallet;
+- saldo insuficiente;
+- BET;
+- WIN;
+- LOSS;
+- REFUND;
+- ROLLBACK;
+- REFUND duplicado;
+- ROLLBACK duplicado;
+- idempotência;
+- conflito de idempotência;
+- concorrência;
+- rollback da transação em caso de erro;
+- PostgreSQL;
+- SQS;
+- Outbox;
+- Inbox;
+- retry de PENDING_REFERENCE;
+- recuperação depois de reiniciar a aplicação.
+
+---
+
+# Decisões que tomei no projeto
+
+Algumas decisões que considerei importantes durante o desenvolvimento foram:
+
+- utilizar ledger para manter o histórico das movimentações;
+- utilizar transações do PostgreSQL para evitar alterações parciais;
+- utilizar Idempotency-Key para evitar duplicidade;
+- utilizar Transactional Outbox para não perder eventos;
+- utilizar Inbox para evitar processamento repetido;
+- persistir os retries de PENDING_REFERENCE;
+- utilizar exponential backoff;
+- testar concorrência diretamente com PostgreSQL;
+- criar health checks para PostgreSQL e SQS.
+
+---
+
+# Autor
+
+**Vitor da Silva Pereira**
+
+Projeto desenvolvido para o desafio de Backend da Jungle.
