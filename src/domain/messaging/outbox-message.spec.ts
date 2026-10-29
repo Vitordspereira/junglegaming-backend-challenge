@@ -5,6 +5,10 @@ import {
 } from 'bun:test';
 
 import {
+  IntegrationEvent,
+} from './integration-event.js';
+
+import {
   OutboxMessage,
 } from './outbox-message.js';
 
@@ -276,6 +280,92 @@ describe(
         ).toThrow(
           'Outbox event type is required',
         );
+      },
+    );
+
+    it(
+      'should enqueue an integration event preserving its envelope',
+      () => {
+        class TestEvent extends IntegrationEvent<
+          {
+            transactionId: string;
+          }
+        > {
+          readonly eventType =
+            'TestEvent';
+
+          readonly version =
+            1;
+
+          constructor() {
+            super({
+              eventId:
+                '33333333-3333-4333-8333-333333333333',
+
+              aggregateId:
+                'transaction-3',
+
+              correlationId:
+                'correlation-3',
+
+              occurredAt:
+                new Date(
+                  '2026-10-29T04:00:00.000Z',
+                ),
+
+              data: {
+                transactionId:
+                  'transaction-3',
+              },
+            });
+          }
+        }
+
+        const event =
+          new TestEvent();
+
+        const outbox =
+          OutboxMessage.enqueue(
+            event,
+          );
+
+        expect(
+          outbox.id,
+        ).toBe(
+          event.eventId,
+        );
+
+        expect(
+          outbox.aggregateId,
+        ).toBe(
+          event.aggregateId,
+        );
+
+        expect(
+          outbox.eventType,
+        ).toBe(
+          'TestEvent',
+        );
+
+        expect(
+          outbox.payload,
+        ).toEqual(
+          event.toJSON(),
+        );
+
+        expect(
+          outbox.occurredAt,
+        ).toEqual(
+          event.occurredAt,
+        );
+
+        expect(
+          outbox.attempts,
+        ).toBe(0);
+
+        expect(
+          outbox.isPending(),
+        ).toBe(true);
       },
     );
   },

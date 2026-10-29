@@ -11,7 +11,7 @@ export interface IntegrationEventProps<
 
 export interface IntegrationEventJson<
   TData extends Record<string, unknown>,
-> {
+> extends Record<string, unknown> {
   eventId: string;
   eventType: string;
   aggregateId: string;
@@ -26,24 +26,17 @@ export abstract class IntegrationEvent<
   TData extends Record<string, unknown>,
 > {
   abstract readonly eventType: string;
-
   abstract readonly version: number;
 
   public readonly eventId: string;
-
   public readonly aggregateId: string;
-
   public readonly correlationId: string;
-
   public readonly causationId?: string;
-
   public readonly occurredAt: Date;
-
   public readonly data: Readonly<TData>;
 
   protected constructor(
-    props:
-      IntegrationEventProps<TData>,
+    props: IntegrationEventProps<TData>,
   ) {
     this.eventId =
       props.eventId;
@@ -87,8 +80,7 @@ export abstract class IntegrationEvent<
         : {}),
 
       occurredAt:
-        this.occurredAt
-          .toISOString(),
+        this.occurredAt.toISOString(),
 
       version:
         this.version,

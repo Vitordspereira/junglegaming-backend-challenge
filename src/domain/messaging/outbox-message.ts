@@ -1,3 +1,7 @@
+import type {
+  IntegrationEvent,
+} from './integration-event.js';
+
 export interface OutboxMessageState {
   id: string;
   aggregateId: string;
@@ -62,6 +66,29 @@ export class OutboxMessage {
       props.occurredAt ?? new Date(),
       0,
     );
+  }
+
+  static enqueue<
+    TData extends Record<string, unknown>,
+  >(
+    event: IntegrationEvent<TData>,
+  ): OutboxMessage {
+    return OutboxMessage.create({
+      id:
+        event.eventId,
+
+      aggregateId:
+        event.aggregateId,
+
+      eventType:
+        event.eventType,
+
+      payload:
+        event.toJSON(),
+
+      occurredAt:
+        event.occurredAt,
+    });
   }
 
   static rehydrate(
