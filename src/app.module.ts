@@ -6,6 +6,7 @@ import { WAGER_TRANSACTION_REPOSITORY } from './application/ports/wager-transact
 import { WALLET_LEDGER_ENTRY_REPOSITORY } from './application/ports/wallet-ledger-entry.repository.js';
 import { TRANSACTION_MANAGER } from './application/ports/transaction-manager.js';
 import { READINESS_CHECKER } from './application/ports/readiness-checker.js';
+import { WAGER_TRANSACTION_QUEUE } from './application/ports/wager-transaction-queue.js';
 
 import { CreateWalletUseCase } from './application/use-cases/create-wallet.use-case.js';
 import { GetWalletUseCase } from './application/use-cases/get-wallet.use-case.js';
@@ -20,7 +21,10 @@ import { MikroOrmWalletRepository } from './infrastructure/database/repositories
 import { MikroOrmWagerTransactionRepository } from './infrastructure/database/repositories/mikro-orm-wager-transaction.repository.js';
 import { MikroOrmWalletLedgerEntryRepository } from './infrastructure/database/repositories/mikro-orm-wallet-ledger-entry.repository.js';
 import { MikroOrmTransactionManager } from './infrastructure/database/mikro-orm-transaction-manager.js';
+
 import { MikroOrmReadinessChecker } from './infrastructure/health/mikro-orm-readiness-checker.js';
+
+import { SqsWagerTransactionQueue } from './infrastructure/messaging/sqs-wager-transaction.queue.js';
 
 import { WalletsController } from './presentation/http/wallets.controller.js';
 import { WageringTransactionsController } from './presentation/http/wagering-transactions.controller.js';
@@ -83,6 +87,14 @@ import mikroOrmConfig from './mikro-orm.config.js';
 
       useClass:
         MikroOrmTransactionManager,
+    },
+
+    {
+      provide:
+        WAGER_TRANSACTION_QUEUE,
+
+      useClass:
+        SqsWagerTransactionQueue,
     },
 
     {

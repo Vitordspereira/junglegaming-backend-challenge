@@ -1,10 +1,16 @@
 import {
+  Inject,
   Injectable,
 } from '@nestjs/common';
 
 import {
   MikroORM,
 } from '@mikro-orm/core';
+
+import {
+  WAGER_TRANSACTION_QUEUE,
+  type WagerTransactionQueue,
+} from '../../application/ports/wager-transaction-queue.js';
 
 import type {
   ReadinessChecker,
@@ -18,10 +24,17 @@ export class MikroOrmReadinessChecker
   constructor(
     private readonly orm:
       MikroORM,
+
+    @Inject(WAGER_TRANSACTION_QUEUE)
+    private readonly wagerTransactionQueue:
+      WagerTransactionQueue,
   ) {}
 
   async check(): Promise<ReadinessStatus> {
     let postgres =
+      false;
+
+    let sqs =
       false;
 
     try {
@@ -38,11 +51,18 @@ export class MikroOrmReadinessChecker
         false;
     }
 
+    try {
+      sqs =
+        await this.wagerTransactionQueue
+          .isReachable();
+    } catch {
+      sqs =
+        false;
+    }
+
     return {
       postgres,
-
-      sqs:
-        false,
+      sqs,
     };
   }
 }

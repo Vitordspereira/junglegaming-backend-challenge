@@ -1,0 +1,25 @@
+services:
+  ministack:
+    image: ministackorg/ministack:latest
+    container_name: jungle-ministack
+    ports:
+      - "4566:4566"
+    environment:
+      GATEWAY_PORT: 4566
+      MINISTACK_REGION: us-east-1
+      MINISTACK_ACCOUNT_ID: "000000000000"
+      SERVICES: sqs
+      LOG_LEVEL: INFO
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:4566/_ministack/health')",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
+    restart: unless-stopped
