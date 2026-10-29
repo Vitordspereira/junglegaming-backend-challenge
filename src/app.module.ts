@@ -5,6 +5,7 @@ import { WALLET_REPOSITORY } from './application/ports/wallet.repository.js';
 import { WAGER_TRANSACTION_REPOSITORY } from './application/ports/wager-transaction.repository.js';
 import { WALLET_LEDGER_ENTRY_REPOSITORY } from './application/ports/wallet-ledger-entry.repository.js';
 import { TRANSACTION_MANAGER } from './application/ports/transaction-manager.js';
+import { READINESS_CHECKER } from './application/ports/readiness-checker.js';
 
 import { CreateWalletUseCase } from './application/use-cases/create-wallet.use-case.js';
 import { GetWalletUseCase } from './application/use-cases/get-wallet.use-case.js';
@@ -13,15 +14,18 @@ import { GetWagerTransactionUseCase } from './application/use-cases/get-wager-tr
 import { GetProviderWagerTransactionUseCase } from './application/use-cases/get-provider-wager-transaction.use-case.js';
 import { ProcessWagerUseCase } from './application/use-cases/process-wager.use-case.js';
 import { ReconcileWalletUseCase } from './application/use-cases/reconcile-wallet.use-case.js';
+import { CheckReadinessUseCase } from './application/use-cases/check-readiness.use-case.js';
 
 import { MikroOrmWalletRepository } from './infrastructure/database/repositories/mikro-orm-wallet.repository.js';
 import { MikroOrmWagerTransactionRepository } from './infrastructure/database/repositories/mikro-orm-wager-transaction.repository.js';
 import { MikroOrmWalletLedgerEntryRepository } from './infrastructure/database/repositories/mikro-orm-wallet-ledger-entry.repository.js';
 import { MikroOrmTransactionManager } from './infrastructure/database/mikro-orm-transaction-manager.js';
+import { MikroOrmReadinessChecker } from './infrastructure/health/mikro-orm-readiness-checker.js';
 
 import { WalletsController } from './presentation/http/wallets.controller.js';
 import { WageringTransactionsController } from './presentation/http/wagering-transactions.controller.js';
 import { ProviderWageringTransactionsController } from './presentation/http/provider-wagering-transactions.controller.js';
+import { HealthController } from './presentation/http/health.controller.js';
 
 import mikroOrmConfig from './mikro-orm.config.js';
 
@@ -36,6 +40,7 @@ import mikroOrmConfig from './mikro-orm.config.js';
     WalletsController,
     WageringTransactionsController,
     ProviderWageringTransactionsController,
+    HealthController,
   ],
 
   providers: [
@@ -46,10 +51,12 @@ import mikroOrmConfig from './mikro-orm.config.js';
     GetProviderWagerTransactionUseCase,
     ProcessWagerUseCase,
     ReconcileWalletUseCase,
+    CheckReadinessUseCase,
 
     {
       provide:
         WALLET_REPOSITORY,
+
       useClass:
         MikroOrmWalletRepository,
     },
@@ -57,6 +64,7 @@ import mikroOrmConfig from './mikro-orm.config.js';
     {
       provide:
         WAGER_TRANSACTION_REPOSITORY,
+
       useClass:
         MikroOrmWagerTransactionRepository,
     },
@@ -64,6 +72,7 @@ import mikroOrmConfig from './mikro-orm.config.js';
     {
       provide:
         WALLET_LEDGER_ENTRY_REPOSITORY,
+
       useClass:
         MikroOrmWalletLedgerEntryRepository,
     },
@@ -71,8 +80,17 @@ import mikroOrmConfig from './mikro-orm.config.js';
     {
       provide:
         TRANSACTION_MANAGER,
+
       useClass:
         MikroOrmTransactionManager,
+    },
+
+    {
+      provide:
+        READINESS_CHECKER,
+
+      useClass:
+        MikroOrmReadinessChecker,
     },
   ],
 })
