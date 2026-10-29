@@ -1,6 +1,6 @@
 # Jungle Backend Challenge
 
-Projeto desenvolvido para o desafio técnico de Backend da Jungle.
+Projeto desenvolvido para o desafio de Backend da Jungle.
 
 A ideia principal foi criar uma API para trabalhar com carteiras e transações de apostas, tentando garantir que as operações financeiras fossem seguras e consistentes.
 
