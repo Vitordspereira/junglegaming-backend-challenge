@@ -11,6 +11,8 @@ import { GetWalletUseCase } from './application/use-cases/get-wallet.use-case.js
 import { ListWalletLedgerUseCase } from './application/use-cases/list-wallet-ledger.use-case.js';
 import { GetWagerTransactionUseCase } from './application/use-cases/get-wager-transaction.use-case.js';
 import { GetProviderWagerTransactionUseCase } from './application/use-cases/get-provider-wager-transaction.use-case.js';
+import { ProcessWagerUseCase } from './application/use-cases/process-wager.use-case.js';
+import { ReconcileWalletUseCase } from './application/use-cases/reconcile-wallet.use-case.js';
 
 import { MikroOrmWalletRepository } from './infrastructure/database/repositories/mikro-orm-wallet.repository.js';
 import { MikroOrmWagerTransactionRepository } from './infrastructure/database/repositories/mikro-orm-wager-transaction.repository.js';
@@ -25,7 +27,9 @@ import mikroOrmConfig from './mikro-orm.config.js';
 
 @Module({
   imports: [
-    MikroOrmModule.forRoot(mikroOrmConfig),
+    MikroOrmModule.forRoot(
+      mikroOrmConfig,
+    ),
   ],
 
   controllers: [
@@ -40,14 +44,19 @@ import mikroOrmConfig from './mikro-orm.config.js';
     ListWalletLedgerUseCase,
     GetWagerTransactionUseCase,
     GetProviderWagerTransactionUseCase,
+    ProcessWagerUseCase,
+    ReconcileWalletUseCase,
 
     {
-      provide: WALLET_REPOSITORY,
-      useClass: MikroOrmWalletRepository,
+      provide:
+        WALLET_REPOSITORY,
+      useClass:
+        MikroOrmWalletRepository,
     },
 
     {
-      provide: WAGER_TRANSACTION_REPOSITORY,
+      provide:
+        WAGER_TRANSACTION_REPOSITORY,
       useClass:
         MikroOrmWagerTransactionRepository,
     },
@@ -60,7 +69,8 @@ import mikroOrmConfig from './mikro-orm.config.js';
     },
 
     {
-      provide: TRANSACTION_MANAGER,
+      provide:
+        TRANSACTION_MANAGER,
       useClass:
         MikroOrmTransactionManager,
     },

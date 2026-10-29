@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'bun:test';
+import {
+  describe,
+  expect,
+  it,
+} from 'bun:test';
 
 import {
   BadRequestException,
@@ -21,6 +25,11 @@ import type {
   ListWalletLedgerUseCase,
 } from '../../application/use-cases/list-wallet-ledger.use-case.js';
 
+import type {
+  ReconcileWalletOutput,
+  ReconcileWalletUseCase,
+} from '../../application/use-cases/reconcile-wallet.use-case.js';
+
 import { WalletsController } from './wallets.controller.js';
 
 describe('WalletsController', () => {
@@ -29,6 +38,9 @@ describe('WalletsController', () => {
 
   const emptyListWalletLedgerUseCase =
     {} as ListWalletLedgerUseCase;
+
+  const emptyReconcileWalletUseCase =
+    {} as ReconcileWalletUseCase;
 
   it('should create a wallet and map the HTTP contract correctly', async () => {
     let receivedInput:
@@ -50,72 +62,106 @@ describe('WalletsController', () => {
         return {
           walletId:
             '0192f291-27dd-7d3f-8071-5f8685deef37',
+
           playerId:
             '0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1',
-          balance: '1000.00',
-          currency: 'BRL',
-          version: 1,
+
+          balance:
+            '1000.00',
+
+          currency:
+            'BRL',
+
+          version:
+            1,
         };
       },
     } as CreateWalletUseCase;
 
-    const controller = new WalletsController(
-      useCase,
-      emptyGetWalletUseCase,
-      emptyListWalletLedgerUseCase,
-    );
+    const controller =
+      new WalletsController(
+        useCase,
+        emptyGetWalletUseCase,
+        emptyListWalletLedgerUseCase,
+        emptyReconcileWalletUseCase,
+      );
 
-    const response = await controller.create({
+    const response =
+      await controller.create({
+        playerId:
+          '0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1',
+
+        initialBalance: {
+          amount:
+            '1000.00',
+
+          currency:
+            'BRL',
+        },
+      });
+
+    expect(
+      receivedInput,
+    ).toEqual({
       playerId:
         '0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1',
-      initialBalance: {
-        amount: '1000.00',
-        currency: 'BRL',
-      },
-    });
 
-    expect(receivedInput).toEqual({
-      playerId:
-        '0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1',
-      initialBalance: '1000.00',
-      currency: 'BRL',
+      initialBalance:
+        '1000.00',
+
+      currency:
+        'BRL',
     });
 
     expect(response).toEqual({
       id:
         '0192f291-27dd-7d3f-8071-5f8685deef37',
+
       playerId:
         '0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1',
+
       balance: {
-        amount: '1000.00',
-        currency: 'BRL',
+        amount:
+          '1000.00',
+
+        currency:
+          'BRL',
       },
-      version: 1,
+
+      version:
+        1,
     });
   });
 
   it('should map a duplicate wallet to HTTP 409 Conflict', async () => {
     const useCase = {
-      execute: async (): Promise<CreateWalletOutput> => {
-        throw new Error(
-          'Wallet already exists for player and currency',
-        );
-      },
+      execute:
+        async (): Promise<CreateWalletOutput> => {
+          throw new Error(
+            'Wallet already exists for player and currency',
+          );
+        },
     } as CreateWalletUseCase;
 
-    const controller = new WalletsController(
-      useCase,
-      emptyGetWalletUseCase,
-      emptyListWalletLedgerUseCase,
-    );
+    const controller =
+      new WalletsController(
+        useCase,
+        emptyGetWalletUseCase,
+        emptyListWalletLedgerUseCase,
+        emptyReconcileWalletUseCase,
+      );
 
     try {
       await controller.create({
         playerId:
           '0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1',
+
         initialBalance: {
-          amount: '1000.00',
-          currency: 'BRL',
+          amount:
+            '1000.00',
+
+          currency:
+            'BRL',
         },
       });
 
@@ -128,33 +174,42 @@ describe('WalletsController', () => {
       );
 
       expect(
-        (error as ConflictException).getStatus(),
+        (
+          error as ConflictException
+        ).getStatus(),
       ).toBe(409);
     }
   });
 
   it('should map an invalid wallet payload to HTTP 400 Bad Request', async () => {
     const useCase = {
-      execute: async (): Promise<CreateWalletOutput> => {
-        throw new Error(
-          'Amount must have exactly two decimal places',
-        );
-      },
+      execute:
+        async (): Promise<CreateWalletOutput> => {
+          throw new Error(
+            'Invalid money amount',
+          );
+        },
     } as CreateWalletUseCase;
 
-    const controller = new WalletsController(
-      useCase,
-      emptyGetWalletUseCase,
-      emptyListWalletLedgerUseCase,
-    );
+    const controller =
+      new WalletsController(
+        useCase,
+        emptyGetWalletUseCase,
+        emptyListWalletLedgerUseCase,
+        emptyReconcileWalletUseCase,
+      );
 
     try {
       await controller.create({
         playerId:
           '0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1',
+
         initialBalance: {
-          amount: '1000',
-          currency: 'BRL',
+          amount:
+            '1000',
+
+          currency:
+            'BRL',
         },
       });
 
@@ -167,33 +222,42 @@ describe('WalletsController', () => {
       );
 
       expect(
-        (error as BadRequestException).getStatus(),
+        (
+          error as BadRequestException
+        ).getStatus(),
       ).toBe(400);
     }
   });
 
   it('should map a negative initial balance to HTTP 400 Bad Request', async () => {
     const useCase = {
-      execute: async (): Promise<CreateWalletOutput> => {
-        throw new Error(
-          'Initial balance cannot be negative',
-        );
-      },
+      execute:
+        async (): Promise<CreateWalletOutput> => {
+          throw new Error(
+            'Initial balance cannot be negative',
+          );
+        },
     } as CreateWalletUseCase;
 
-    const controller = new WalletsController(
-      useCase,
-      emptyGetWalletUseCase,
-      emptyListWalletLedgerUseCase,
-    );
+    const controller =
+      new WalletsController(
+        useCase,
+        emptyGetWalletUseCase,
+        emptyListWalletLedgerUseCase,
+        emptyReconcileWalletUseCase,
+      );
 
     try {
       await controller.create({
         playerId:
           '0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1',
+
         initialBalance: {
-          amount: '-1.00',
-          currency: 'BRL',
+          amount:
+            '-1.00',
+
+          currency:
+            'BRL',
         },
       });
 
@@ -206,7 +270,9 @@ describe('WalletsController', () => {
       );
 
       expect(
-        (error as BadRequestException).getStatus(),
+        (
+          error as BadRequestException
+        ).getStatus(),
       ).toBe(400);
     }
   });
@@ -223,44 +289,64 @@ describe('WalletsController', () => {
       execute: async (input: {
         walletId: string;
       }): Promise<GetWalletOutput> => {
-        receivedWalletId = input.walletId;
+        receivedWalletId =
+          input.walletId;
 
         return {
           id:
             'aaaaaaaa-1111-2222-3333-aaaaaaaaaaaa',
+
           playerId:
             'bbbbbbbb-1111-2222-3333-bbbbbbbbbbbb',
-          balance: '125.00',
-          currency: 'BRL',
-          version: 3,
+
+          balance:
+            '125.00',
+
+          currency:
+            'BRL',
+
+          version:
+            3,
         };
       },
     } as GetWalletUseCase;
 
-    const controller = new WalletsController(
-      createWalletUseCase,
-      getWalletUseCase,
-      emptyListWalletLedgerUseCase,
-    );
+    const controller =
+      new WalletsController(
+        createWalletUseCase,
+        getWalletUseCase,
+        emptyListWalletLedgerUseCase,
+        emptyReconcileWalletUseCase,
+      );
 
-    const response = await controller.findById(
-      'aaaaaaaa-1111-2222-3333-aaaaaaaaaaaa',
-    );
+    const response =
+      await controller.findById(
+        'aaaaaaaa-1111-2222-3333-aaaaaaaaaaaa',
+      );
 
-    expect(receivedWalletId).toBe(
+    expect(
+      receivedWalletId,
+    ).toBe(
       'aaaaaaaa-1111-2222-3333-aaaaaaaaaaaa',
     );
 
     expect(response).toEqual({
       id:
         'aaaaaaaa-1111-2222-3333-aaaaaaaaaaaa',
+
       playerId:
         'bbbbbbbb-1111-2222-3333-bbbbbbbbbbbb',
+
       balance: {
-        amount: '125.00',
-        currency: 'BRL',
+        amount:
+          '125.00',
+
+        currency:
+          'BRL',
       },
-      version: 3,
+
+      version:
+        3,
     });
   });
 
@@ -269,16 +355,21 @@ describe('WalletsController', () => {
       {} as CreateWalletUseCase;
 
     const getWalletUseCase = {
-      execute: async (): Promise<GetWalletOutput> => {
-        throw new Error('Wallet not found');
-      },
+      execute:
+        async (): Promise<GetWalletOutput> => {
+          throw new Error(
+            'Wallet not found',
+          );
+        },
     } as GetWalletUseCase;
 
-    const controller = new WalletsController(
-      createWalletUseCase,
-      getWalletUseCase,
-      emptyListWalletLedgerUseCase,
-    );
+    const controller =
+      new WalletsController(
+        createWalletUseCase,
+        getWalletUseCase,
+        emptyListWalletLedgerUseCase,
+        emptyReconcileWalletUseCase,
+      );
 
     try {
       await controller.findById(
@@ -294,7 +385,9 @@ describe('WalletsController', () => {
       );
 
       expect(
-        (error as NotFoundException).getStatus(),
+        (
+          error as NotFoundException
+        ).getStatus(),
       ).toBe(404);
     }
   });
@@ -320,35 +413,51 @@ describe('WalletsController', () => {
         limit: number;
         cursor?: string;
       }): Promise<ListWalletLedgerOutput> => {
-        receivedInput = input;
+        receivedInput =
+          input;
 
         return {
           items: [
             {
               id:
                 '11111111-1111-1111-1111-111111111111',
+
               transactionId:
                 '22222222-2222-2222-2222-222222222222',
-              direction: 'CREDIT',
-              amount: '100.00',
-              currency: 'BRL',
-              balanceBefore: '0.00',
-              balanceAfter: '100.00',
+
+              direction:
+                'CREDIT',
+
+              amount:
+                '100.00',
+
+              currency:
+                'BRL',
+
+              balanceBefore:
+                '0.00',
+
+              balanceAfter:
+                '100.00',
+
               createdAt:
                 '2026-10-28T12:00:00.000Z',
             },
           ],
+
           nextCursor:
             'next-cursor-value',
         };
       },
     } as ListWalletLedgerUseCase;
 
-    const controller = new WalletsController(
-      createWalletUseCase,
-      getWalletUseCase,
-      listWalletLedgerUseCase,
-    );
+    const controller =
+      new WalletsController(
+        createWalletUseCase,
+        getWalletUseCase,
+        listWalletLedgerUseCase,
+        emptyReconcileWalletUseCase,
+      );
 
     const response =
       await controller.listLedger(
@@ -357,11 +466,17 @@ describe('WalletsController', () => {
         'current-cursor-value',
       );
 
-    expect(receivedInput).toEqual({
+    expect(
+      receivedInput,
+    ).toEqual({
       walletId:
         'aaaaaaaa-1111-2222-3333-aaaaaaaaaaaa',
-      limit: 2,
-      cursor: 'current-cursor-value',
+
+      limit:
+        2,
+
+      cursor:
+        'current-cursor-value',
     });
 
     expect(response).toEqual({
@@ -369,170 +484,365 @@ describe('WalletsController', () => {
         {
           id:
             '11111111-1111-1111-1111-111111111111',
+
           transactionId:
             '22222222-2222-2222-2222-222222222222',
-          direction: 'CREDIT',
-          amount: '100.00',
-          currency: 'BRL',
-          balanceBefore: '0.00',
-          balanceAfter: '100.00',
+
+          direction:
+            'CREDIT',
+
+          amount:
+            '100.00',
+
+          currency:
+            'BRL',
+
+          balanceBefore:
+            '0.00',
+
+          balanceAfter:
+            '100.00',
+
           createdAt:
             '2026-10-28T12:00:00.000Z',
         },
       ],
+
       nextCursor:
         'next-cursor-value',
     });
   });
 
-    it('should use limit 50 when the ledger limit query is not provided', async () => {
-      const createWalletUseCase =
-        {} as CreateWalletUseCase;
+  it('should use limit 50 when the ledger limit query is not provided', async () => {
+    const createWalletUseCase =
+      {} as CreateWalletUseCase;
 
-      const getWalletUseCase =
-        {} as GetWalletUseCase;
+    const getWalletUseCase =
+      {} as GetWalletUseCase;
 
-      let receivedLimit:
-        | number
-        | undefined;
+    let receivedLimit:
+      | number
+      | undefined;
 
-      const listWalletLedgerUseCase = {
-        execute: async (input: {
-          walletId: string;
-          limit: number;
-          cursor?: string;
-        }): Promise<ListWalletLedgerOutput> => {
-          receivedLimit = input.limit;
+    const listWalletLedgerUseCase = {
+      execute: async (input: {
+        walletId: string;
+        limit: number;
+        cursor?: string;
+      }): Promise<ListWalletLedgerOutput> => {
+        receivedLimit =
+          input.limit;
 
-          return {
-            items: [],
-            nextCursor: undefined,
-          };
-        },
-      } as ListWalletLedgerUseCase;
+        return {
+          items: [],
+          nextCursor:
+            undefined,
+        };
+      },
+    } as ListWalletLedgerUseCase;
 
-      const controller = new WalletsController(
+    const controller =
+      new WalletsController(
         createWalletUseCase,
         getWalletUseCase,
         listWalletLedgerUseCase,
+        emptyReconcileWalletUseCase,
       );
 
+    await controller.listLedger(
+      'aaaaaaaa-1111-2222-3333-aaaaaaaaaaaa',
+    );
+
+    expect(
+      receivedLimit,
+    ).toBe(50);
+  });
+
+  it('should reject ledger limit 0 with HTTP 400 Bad Request', async () => {
+    const createWalletUseCase =
+      {} as CreateWalletUseCase;
+
+    const getWalletUseCase =
+      {} as GetWalletUseCase;
+
+    const listWalletLedgerUseCase =
+      {} as ListWalletLedgerUseCase;
+
+    const controller =
+      new WalletsController(
+        createWalletUseCase,
+        getWalletUseCase,
+        listWalletLedgerUseCase,
+        emptyReconcileWalletUseCase,
+      );
+
+    try {
       await controller.listLedger(
+        'aaaaaaaa-1111-2222-3333-aaaaaaaaaaaa',
+        '0',
+      );
+
+      throw new Error(
+        'Expected controller.listLedger to throw',
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(
+        BadRequestException,
+      );
+
+      expect(
+        (
+          error as BadRequestException
+        ).getStatus(),
+      ).toBe(400);
+    }
+  });
+
+  it('should reject a non-numeric ledger limit with HTTP 400 Bad Request', async () => {
+    const createWalletUseCase =
+      {} as CreateWalletUseCase;
+
+    const getWalletUseCase =
+      {} as GetWalletUseCase;
+
+    const listWalletLedgerUseCase =
+      {} as ListWalletLedgerUseCase;
+
+    const controller =
+      new WalletsController(
+        createWalletUseCase,
+        getWalletUseCase,
+        listWalletLedgerUseCase,
+        emptyReconcileWalletUseCase,
+      );
+
+    try {
+      await controller.listLedger(
+        'aaaaaaaa-1111-2222-3333-aaaaaaaaaaaa',
+        'abc',
+      );
+
+      throw new Error(
+        'Expected controller.listLedger to throw',
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(
+        BadRequestException,
+      );
+
+      expect(
+        (
+          error as BadRequestException
+        ).getStatus(),
+      ).toBe(400);
+    }
+  });
+
+  it('should map an invalid ledger cursor to HTTP 400 Bad Request', async () => {
+    const createWalletUseCase =
+      {} as CreateWalletUseCase;
+
+    const getWalletUseCase =
+      {} as GetWalletUseCase;
+
+    const listWalletLedgerUseCase = {
+      execute:
+        async (): Promise<ListWalletLedgerOutput> => {
+          throw new Error(
+            'Invalid cursor',
+          );
+        },
+    } as ListWalletLedgerUseCase;
+
+    const controller =
+      new WalletsController(
+        createWalletUseCase,
+        getWalletUseCase,
+        listWalletLedgerUseCase,
+        emptyReconcileWalletUseCase,
+      );
+
+    try {
+      await controller.listLedger(
+        'aaaaaaaa-1111-2222-3333-aaaaaaaaaaaa',
+        '2',
+        'invalid-cursor',
+      );
+
+      throw new Error(
+        'Expected controller.listLedger to throw',
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(
+        BadRequestException,
+      );
+
+      expect(
+        (
+          error as BadRequestException
+        ).getStatus(),
+      ).toBe(400);
+    }
+  });
+
+  it('should reconcile a wallet and return the expected HTTP contract', async () => {
+    const createWalletUseCase =
+      {} as CreateWalletUseCase;
+
+    const getWalletUseCase =
+      {} as GetWalletUseCase;
+
+    const listWalletLedgerUseCase =
+      {} as ListWalletLedgerUseCase;
+
+    let receivedWalletId:
+      | string
+      | undefined;
+
+    const reconcileWalletUseCase = {
+      execute: async (input: {
+        walletId: string;
+      }): Promise<ReconcileWalletOutput> => {
+        receivedWalletId =
+          input.walletId;
+
+        return {
+          walletId:
+            'aaaaaaaa-1111-2222-3333-aaaaaaaaaaaa',
+
+          storedBalance: {
+            amount:
+              '75.00',
+
+            currency:
+              'BRL',
+          },
+
+          calculatedBalance: {
+            amount:
+              '75.00',
+
+            currency:
+              'BRL',
+          },
+
+          difference: {
+            amount:
+              '0.00',
+
+            currency:
+              'BRL',
+          },
+
+          consistent:
+            true,
+
+          checkedEntries:
+            2,
+        };
+      },
+    } as ReconcileWalletUseCase;
+
+    const controller =
+      new WalletsController(
+        createWalletUseCase,
+        getWalletUseCase,
+        listWalletLedgerUseCase,
+        reconcileWalletUseCase,
+      );
+
+    const response =
+      await controller.reconcile(
         'aaaaaaaa-1111-2222-3333-aaaaaaaaaaaa',
       );
 
-      expect(receivedLimit).toBe(50);
+    expect(
+      receivedWalletId,
+    ).toBe(
+      'aaaaaaaa-1111-2222-3333-aaaaaaaaaaaa',
+    );
+
+    expect(response).toEqual({
+      walletId:
+        'aaaaaaaa-1111-2222-3333-aaaaaaaaaaaa',
+
+      storedBalance: {
+        amount:
+          '75.00',
+
+        currency:
+          'BRL',
+      },
+
+      calculatedBalance: {
+        amount:
+          '75.00',
+
+        currency:
+          'BRL',
+      },
+
+      difference: {
+        amount:
+          '0.00',
+
+        currency:
+          'BRL',
+      },
+
+      consistent:
+        true,
+
+      checkedEntries:
+        2,
     });
+  });
 
-    it('should reject ledger limit 0 with HTTP 400 Bad Request', async () => {
-      const createWalletUseCase =
-        {} as CreateWalletUseCase;
+  it('should map a missing wallet during reconciliation to HTTP 404 Not Found', async () => {
+    const createWalletUseCase =
+      {} as CreateWalletUseCase;
 
-      const getWalletUseCase =
-        {} as GetWalletUseCase;
+    const getWalletUseCase =
+      {} as GetWalletUseCase;
 
-      const listWalletLedgerUseCase =
-        {} as ListWalletLedgerUseCase;
+    const listWalletLedgerUseCase =
+      {} as ListWalletLedgerUseCase;
 
-      const controller = new WalletsController(
-        createWalletUseCase,
-        getWalletUseCase,
-        listWalletLedgerUseCase,
-      );
-
-      try {
-        await controller.listLedger(
-          'aaaaaaaa-1111-2222-3333-aaaaaaaaaaaa',
-          '0',
-        );
-
-        throw new Error(
-          'Expected controller.listLedger to throw',
-        );
-      } catch (error) {
-        expect(error).toBeInstanceOf(
-          BadRequestException,
-        );
-
-        expect(
-          (error as BadRequestException).getStatus(),
-        ).toBe(400);
-      }
-    });
-
-    it('should reject a non-numeric ledger limit with HTTP 400 Bad Request', async () => {
-      const createWalletUseCase =
-        {} as CreateWalletUseCase;
-
-      const getWalletUseCase =
-        {} as GetWalletUseCase;
-
-      const listWalletLedgerUseCase =
-        {} as ListWalletLedgerUseCase;
-
-      const controller = new WalletsController(
-        createWalletUseCase,
-        getWalletUseCase,
-        listWalletLedgerUseCase,
-      );
-
-      try {
-        await controller.listLedger(
-          'aaaaaaaa-1111-2222-3333-aaaaaaaaaaaa',
-          'abc',
-        );
-
-        throw new Error(
-          'Expected controller.listLedger to throw',
-        );
-      } catch (error) {
-        expect(error).toBeInstanceOf(
-          BadRequestException,
-        );
-
-        expect(
-          (error as BadRequestException).getStatus(),
-        ).toBe(400);
-      }
-    });
-
-    it('should map an invalid ledger cursor to HTTP 400 Bad Request', async () => {
-      const createWalletUseCase =
-        {} as CreateWalletUseCase;
-
-      const getWalletUseCase =
-        {} as GetWalletUseCase;
-
-      const listWalletLedgerUseCase = {
-        execute: async (): Promise<ListWalletLedgerOutput> => {
-          throw new Error('Invalid cursor');
+    const reconcileWalletUseCase = {
+      execute:
+        async (): Promise<ReconcileWalletOutput> => {
+          throw new Error(
+            'Wallet not found',
+          );
         },
-      } as ListWalletLedgerUseCase;
+    } as ReconcileWalletUseCase;
 
-      const controller = new WalletsController(
+    const controller =
+      new WalletsController(
         createWalletUseCase,
         getWalletUseCase,
         listWalletLedgerUseCase,
+        reconcileWalletUseCase,
       );
 
-      try {
-        await controller.listLedger(
-          'aaaaaaaa-1111-2222-3333-aaaaaaaaaaaa',
-          '2',
-          'invalid-cursor',
-        );
+    try {
+      await controller.reconcile(
+        'ffffffff-ffff-ffff-ffff-ffffffffffff',
+      );
 
-        throw new Error(
-          'Expected controller.listLedger to throw',
-        );
-      } catch (error) {
-        expect(error).toBeInstanceOf(
-          BadRequestException,
-        );
+      throw new Error(
+        'Expected controller.reconcile to throw',
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(
+        NotFoundException,
+      );
 
-        expect(
-          (error as BadRequestException).getStatus(),
-        ).toBe(400);
-      }
-    });
+      expect(
+        (
+          error as NotFoundException
+        ).getStatus(),
+      ).toBe(404);
+    }
+  });
 });
