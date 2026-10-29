@@ -6,10 +6,11 @@ import {
   it,
 } from 'bun:test';
 
-import { INestApplication } from '@nestjs/common';
+import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 
 import { GetWagerTransactionUseCase } from '../../src/application/use-cases/get-wager-transaction.use-case.js';
+import { ProcessWagerUseCase } from '../../src/application/use-cases/process-wager.use-case.js';
 
 import {
   WagerTransactionKind,
@@ -19,7 +20,7 @@ import {
 import { WageringTransactionsController } from '../../src/presentation/http/wagering-transactions.controller.js';
 
 describe('WageringTransactionsController HTTP', () => {
-  let app: INestApplication;
+  let app: INestApplication | undefined;
   let baseUrl: string;
 
   const getWagerTransactionUseCase = {
@@ -82,6 +83,14 @@ describe('WageringTransactionsController HTTP', () => {
     },
   };
 
+  const processWagerUseCase = {
+    execute: async () => {
+      throw new Error(
+        'ProcessWagerUseCase should not be called in this E2E test',
+      );
+    },
+  };
+
   beforeAll(async () => {
     const moduleRef =
       await Test.createTestingModule({
@@ -96,6 +105,13 @@ describe('WageringTransactionsController HTTP', () => {
 
             useValue:
               getWagerTransactionUseCase,
+          },
+          {
+            provide:
+              ProcessWagerUseCase,
+
+            useValue:
+              processWagerUseCase,
           },
         ],
       }).compile();
@@ -125,7 +141,9 @@ describe('WageringTransactionsController HTTP', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close();
+    }
   });
 
   it('should return HTTP 200 with the wagering transaction', async () => {
@@ -183,23 +201,23 @@ describe('WageringTransactionsController HTTP', () => {
     });
   });
 
-    it('should return HTTP 404 when the wagering transaction does not exist', async () => {
-      const response =
-        await fetch(
-          `${baseUrl}/wagering/transactions/dddddddd-1111-2222-3333-dddddddddddd`,
-        );
+  it('should return HTTP 404 when the wagering transaction does not exist', async () => {
+    const response =
+      await fetch(
+        `${baseUrl}/wagering/transactions/dddddddd-1111-2222-3333-dddddddddddd`,
+      );
 
-      expect(response.status).toBe(404);
+    expect(response.status).toBe(404);
 
-      expect(
-        await response.json(),
-      ).toEqual({
-        message:
-          'Wager transaction not found',
-        error:
-          'Not Found',
-        statusCode:
-          404,
-      });
+    expect(
+      await response.json(),
+    ).toEqual({
+      message:
+        'Wager transaction not found',
+      error:
+        'Not Found',
+      statusCode:
+        404,
     });
+  });
 });

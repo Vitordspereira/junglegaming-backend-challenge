@@ -154,44 +154,28 @@ describe('ProcessWagerUseCase integration', () => {
   });
 
   it('rolls back the whole transaction when ledger persistence fails', async () => {
-    const entityManager = orm.em.fork();
+    const walletId = randomUUID();
+    const playerId = randomUUID();
+    const transactionId = randomUUID();
 
-    await entityManager.begin();
+    /*
+     * Primeiro persistimos a wallet inicial
+     * em uma transacao independente e
+     * confirmada.
+     *
+     * Assim ela representa o estado existente
+     * antes do processamento da aposta.
+     */
+    const setupEntityManager =
+      orm.em.fork();
+
+    await setupEntityManager.begin();
 
     try {
-      const walletRepository =
-        new MikroOrmWalletRepository(entityManager);
-
-      const wagerTransactionRepository =
-        new MikroOrmWagerTransactionRepository(entityManager);
-
-      const transactionManager =
-        new MikroOrmTransactionManager(entityManager);
-
-      const failingLedgerRepository = {
-        async findById() {
-          return null;
-        },
-
-        async findByWalletAndTransaction() {
-          return null;
-        },
-
-        async append() {
-          throw new Error('Simulated ledger failure');
-        },
-      };
-
-      const useCase = new ProcessWagerUseCase(
-        walletRepository,
-        wagerTransactionRepository,
-        failingLedgerRepository,
-        transactionManager,
-      );
-
-      const walletId = randomUUID();
-      const playerId = randomUUID();
-      const transactionId = randomUUID();
+      const setupWalletRepository =
+        new MikroOrmWalletRepository(
+          setupEntityManager,
+        );
 
       const wallet = Wallet.open({
         id: walletId,
@@ -202,8 +186,69 @@ describe('ProcessWagerUseCase integration', () => {
         }),
       });
 
-      await walletRepository.save(wallet);
+      await setupWalletRepository.save(
+        wallet,
+      );
 
+      await setupEntityManager.commit();
+    } catch (error) {
+      await setupEntityManager.rollback();
+      throw error;
+    }
+
+    /*
+     * Nova EntityManager.
+     *
+     * Nao abrimos transaction manualmente.
+     * Agora o MikroOrmTransactionManager e
+     * realmente o dono da transacao do
+     * ProcessWagerUseCase.
+     */
+    const processingEntityManager =
+      orm.em.fork({
+        useContext: true,
+      });
+
+    const walletRepository =
+      new MikroOrmWalletRepository(
+        processingEntityManager,
+      );
+
+    const wagerTransactionRepository =
+      new MikroOrmWagerTransactionRepository(
+        processingEntityManager,
+      );
+
+    const transactionManager =
+      new MikroOrmTransactionManager(
+        processingEntityManager,
+      );
+
+    const failingLedgerRepository = {
+      async findById() {
+        return null;
+      },
+
+      async findByWalletAndTransaction() {
+        return null;
+      },
+
+      async append() {
+        throw new Error(
+          'Simulated ledger failure',
+        );
+      },
+    };
+
+    const useCase =
+      new ProcessWagerUseCase(
+        walletRepository,
+        wagerTransactionRepository,
+        failingLedgerRepository,
+        transactionManager,
+      );
+
+    try {
       await expect(
         useCase.execute({
           id: transactionId,
@@ -224,27 +269,86 @@ describe('ProcessWagerUseCase integration', () => {
         'Simulated ledger failure',
       );
 
-      entityManager.clear();
+      /*
+       * Outra EntityManager garante que
+       * estamos lendo o estado realmente
+       * persistido depois do rollback.
+       */
+      const verificationEntityManager =
+        orm.em.fork();
+
+      const verificationWalletRepository =
+        new MikroOrmWalletRepository(
+          verificationEntityManager,
+        );
+
+      const verificationWagerRepository =
+        new MikroOrmWagerTransactionRepository(
+          verificationEntityManager,
+        );
 
       const persistedWallet =
-        await walletRepository.findById(walletId);
+        await verificationWalletRepository.findById(
+          walletId,
+        );
 
       const persistedTransaction =
-        await wagerTransactionRepository.findById(
+        await verificationWagerRepository.findById(
           transactionId,
         );
 
+      /*
+       * O debito precisa ter sido revertido.
+       */
       expect(persistedWallet).not.toBeNull();
 
       expect(
         persistedWallet?.balance.toString(),
       ).toBe('100.00');
 
-      expect(persistedWallet?.version).toBe(1);
+      expect(
+        persistedWallet?.version,
+      ).toBe(1);
 
-      expect(persistedTransaction).toBeNull();
+      /*
+       * A WagerTransaction tambem nao pode
+       * sobreviver ao rollback.
+       */
+      expect(
+        persistedTransaction,
+      ).toBeNull();
     } finally {
-      await entityManager.rollback();
+      /*
+       * Como a wallet inicial foi realmente
+       * commitada, limpamos o dado criado
+       * pelo teste.
+       */
+      const cleanupEntityManager =
+        orm.em.fork();
+
+      await cleanupEntityManager
+        .getConnection()
+        .execute(
+          `
+            DELETE FROM wager_transactions
+            WHERE id = ?
+          `,
+          [
+            transactionId,
+          ],
+        );
+
+      await cleanupEntityManager
+        .getConnection()
+        .execute(
+          `
+            DELETE FROM wallets
+            WHERE id = ?
+          `,
+          [
+            walletId,
+          ],
+        );
     }
   });
 
@@ -897,7 +1001,6 @@ describe('ProcessWagerUseCase integration', () => {
     }
   });
 
-
   it('should reject a second REFUND for the same processed BET', async () => {
     const em = orm.em.fork();
 
@@ -1005,15 +1108,18 @@ describe('ProcessWagerUseCase integration', () => {
       expect(secondRefund.status).toBe(
         WagerTransactionStatus.Rejected,
       );
+
       expect(secondRefund.failureCode).toBe(
         FailureCode.DuplicateReversal,
       );
+
       expect(secondRefund.balance).toBe('100.00');
 
       const persistedWallet =
         await walletRepository.findById(wallet.id);
 
       expect(persistedWallet).not.toBeNull();
+
       expect(
         persistedWallet?.balance.toString(),
       ).toBe('100.00');
@@ -1025,9 +1131,11 @@ describe('ProcessWagerUseCase integration', () => {
         );
 
       expect(firstRefundTransaction).not.toBeNull();
+
       expect(firstRefundTransaction?.status).toBe(
         WagerTransactionStatus.Processed,
       );
+
       expect(
         firstRefundTransaction?.referenceTransactionId,
       ).toBe(
@@ -1041,10 +1149,14 @@ describe('ProcessWagerUseCase integration', () => {
         );
 
       expect(secondRefundTransaction).not.toBeNull();
+
       expect(secondRefundTransaction?.status).toBe(
         WagerTransactionStatus.Rejected,
       );
-      expect(secondRefundTransaction?.failureCode).toBe(
+
+      expect(
+        secondRefundTransaction?.failureCode,
+      ).toBe(
         FailureCode.DuplicateReversal,
       );
 
@@ -1067,7 +1179,6 @@ describe('ProcessWagerUseCase integration', () => {
       await em.rollback();
     }
   });
-
 
   it('processes a ROLLBACK of a processed BET atomically in PostgreSQL', async () => {
     const em = orm.em.fork();
@@ -1126,6 +1237,7 @@ describe('ProcessWagerUseCase integration', () => {
       expect(bet.status).toBe(
         WagerTransactionStatus.Processed,
       );
+
       expect(bet.balance).toBe('75.00');
 
       const rollback = await useCase.execute({
@@ -1151,6 +1263,7 @@ describe('ProcessWagerUseCase integration', () => {
       expect(rollback.status).toBe(
         WagerTransactionStatus.Processed,
       );
+
       expect(rollback.balance).toBe('100.00');
       expect(rollback.failureCode).toBeUndefined();
 
@@ -1158,6 +1271,7 @@ describe('ProcessWagerUseCase integration', () => {
         await walletRepository.findById(wallet.id);
 
       expect(persistedWallet).not.toBeNull();
+
       expect(
         persistedWallet?.balance.toString(),
       ).toBe('100.00');
@@ -1169,14 +1283,17 @@ describe('ProcessWagerUseCase integration', () => {
         );
 
       expect(persistedRollback).not.toBeNull();
+
       expect(persistedRollback?.status).toBe(
         WagerTransactionStatus.Processed,
       );
+
       expect(
         persistedRollback?.referenceTransactionId,
       ).toBe(
         '91919191-1111-2222-3333-919191919191',
       );
+
       expect(
         persistedRollback?.resultBalance?.toString(),
       ).toBe('100.00');
@@ -1188,15 +1305,19 @@ describe('ProcessWagerUseCase integration', () => {
         );
 
       expect(rollbackLedger).not.toBeNull();
+
       expect(rollbackLedger?.direction).toBe(
         LedgerDirection.Credit,
       );
+
       expect(
         rollbackLedger?.money.toString(),
       ).toBe('25.00');
+
       expect(
         rollbackLedger?.balanceBefore.toString(),
       ).toBe('75.00');
+
       expect(
         rollbackLedger?.balanceAfter.toString(),
       ).toBe('100.00');
@@ -1204,7 +1325,6 @@ describe('ProcessWagerUseCase integration', () => {
       await em.rollback();
     }
   });
-
 
   it('rejects a second ROLLBACK for the same processed transaction in PostgreSQL', async () => {
     const em = orm.em.fork();
@@ -1263,6 +1383,7 @@ describe('ProcessWagerUseCase integration', () => {
       expect(bet.status).toBe(
         WagerTransactionStatus.Processed,
       );
+
       expect(bet.balance).toBe('75.00');
 
       const firstRollback = await useCase.execute({
@@ -1288,6 +1409,7 @@ describe('ProcessWagerUseCase integration', () => {
       expect(firstRollback.status).toBe(
         WagerTransactionStatus.Processed,
       );
+
       expect(firstRollback.balance).toBe('100.00');
 
       const secondRollback = await useCase.execute({
@@ -1324,6 +1446,7 @@ describe('ProcessWagerUseCase integration', () => {
         await walletRepository.findById(wallet.id);
 
       expect(persistedWallet).not.toBeNull();
+
       expect(
         persistedWallet?.balance.toString(),
       ).toBe('100.00');
@@ -1335,6 +1458,7 @@ describe('ProcessWagerUseCase integration', () => {
         );
 
       expect(firstRollbackTransaction).not.toBeNull();
+
       expect(firstRollbackTransaction?.status).toBe(
         WagerTransactionStatus.Processed,
       );
@@ -1352,6 +1476,7 @@ describe('ProcessWagerUseCase integration', () => {
         );
 
       expect(secondRollbackTransaction).not.toBeNull();
+
       expect(secondRollbackTransaction?.status).toBe(
         WagerTransactionStatus.Rejected,
       );
@@ -1381,5 +1506,4 @@ describe('ProcessWagerUseCase integration', () => {
       await em.rollback();
     }
   });
-
 });

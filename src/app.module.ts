@@ -10,6 +10,7 @@ import { WAGER_TRANSACTION_QUEUE } from './application/ports/wager-transaction-q
 import { INBOX_MESSAGE_REPOSITORY } from './application/ports/inbox-message.repository.js';
 import { OUTBOX_MESSAGE_REPOSITORY } from './application/ports/outbox-message.repository.js';
 import { INTEGRATION_EVENT_PUBLISHER } from './application/ports/integration-event-publisher.js';
+import { PENDING_REFERENCE_RETRY_REPOSITORY } from './application/ports/pending-reference-retry.repository.js';
 
 import { CreateWalletUseCase } from './application/use-cases/create-wallet.use-case.js';
 import { GetWalletUseCase } from './application/use-cases/get-wallet.use-case.js';
@@ -21,12 +22,14 @@ import { ProcessWagerMessageUseCase } from './application/use-cases/process-wage
 import { PublishOutboxUseCase } from './application/use-cases/publish-outbox.use-case.js';
 import { ReconcileWalletUseCase } from './application/use-cases/reconcile-wallet.use-case.js';
 import { CheckReadinessUseCase } from './application/use-cases/check-readiness.use-case.js';
+import { ProcessPendingReferenceRetriesUseCase } from './application/use-cases/process-pending-reference-retries.use-case.js';
 
 import { MikroOrmWalletRepository } from './infrastructure/database/repositories/mikro-orm-wallet.repository.js';
 import { MikroOrmWagerTransactionRepository } from './infrastructure/database/repositories/mikro-orm-wager-transaction.repository.js';
 import { MikroOrmWalletLedgerEntryRepository } from './infrastructure/database/repositories/mikro-orm-wallet-ledger-entry.repository.js';
 import { MikroOrmInboxMessageRepository } from './infrastructure/database/repositories/mikro-orm-inbox-message.repository.js';
 import { MikroOrmOutboxMessageRepository } from './infrastructure/database/repositories/mikro-orm-outbox-message.repository.js';
+import { MikroOrmPendingReferenceRetryRepository } from './infrastructure/database/repositories/mikro-orm-pending-reference-retry.repository.js';
 
 import { MikroOrmTransactionManager } from './infrastructure/database/mikro-orm-transaction-manager.js';
 
@@ -35,6 +38,8 @@ import { MikroOrmReadinessChecker } from './infrastructure/health/mikro-orm-read
 import { SqsWagerTransactionQueue } from './infrastructure/messaging/sqs-wager-transaction.queue.js';
 import { SqsIntegrationEventPublisher } from './infrastructure/messaging/sqs-integration-event.publisher.js';
 import { WagerTransactionConsumer } from './infrastructure/messaging/wager-transaction.consumer.js';
+
+import { PendingReferenceWorker } from './infrastructure/workers/pending-reference.worker.js';
 
 import { WalletsController } from './presentation/http/wallets.controller.js';
 import { WageringTransactionsController } from './presentation/http/wagering-transactions.controller.js';
@@ -69,6 +74,15 @@ import mikroOrmConfig from './mikro-orm.config.js';
     ReconcileWalletUseCase,
     CheckReadinessUseCase,
 
+    /*
+     * PendingReference
+     */
+    ProcessPendingReferenceRetriesUseCase,
+    PendingReferenceWorker,
+
+    /*
+     * SQS consumer
+     */
     WagerTransactionConsumer,
 
     {
@@ -109,6 +123,18 @@ import mikroOrmConfig from './mikro-orm.config.js';
 
       useClass:
         MikroOrmOutboxMessageRepository,
+    },
+
+    /*
+     * Retry persistente para
+     * PENDING_REFERENCE.
+     */
+    {
+      provide:
+        PENDING_REFERENCE_RETRY_REPOSITORY,
+
+      useClass:
+        MikroOrmPendingReferenceRetryRepository,
     },
 
     {

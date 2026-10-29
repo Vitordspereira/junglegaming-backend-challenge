@@ -273,39 +273,115 @@
           "keyName": "outbox_messages_pkey",
           "primary": true,
           "unique": true
-        },
-        {
-          "columnNames": [
-            "published_at",
-            "next_attempt_at",
-            "occurred_at"
-          ],
-          "composite": true,
-          "constraint": false,
-          "keyName": "outbox_pending_retry_idx",
-          "primary": false,
-          "unique": false
-        },
-        {
-          "columnNames": [
-            "published_at",
-            "occurred_at"
-          ],
-          "composite": true,
-          "constraint": false,
-          "keyName": "outbox_unpublished_occurred_at_idx",
-          "primary": false,
-          "unique": false
         }
       ],
       "checks": [
         {
           "name": "outbox_attempts_non_negative",
           "expression": "attempts >= 0",
-          "definition": "CHECK ((attempts >= 0))",
-          "columnName": "attempts"
+          "definition": "check (attempts >= 0)"
         }
       ],
+      "triggers": [],
+      "foreignKeys": {},
+      "comment": null
+    },
+    {
+      "name": "pending_reference_retries",
+      "schema": "public",
+      "columns": {
+        "attempts": {
+          "name": "attempts",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "0",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "integer"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "next_attempt_at": {
+          "name": "next_attempt_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "transaction_id": {
+          "name": "transaction_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": true,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        }
+      },
+      "indexes": [
+        {
+          "columnNames": [
+            "next_attempt_at"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "idx_pending_reference_retries_due",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
+            "transaction_id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "keyName": "pending_reference_retries_pkey",
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
       "triggers": [],
       "foreignKeys": {},
       "comment": null
@@ -708,8 +784,7 @@
         {
           "name": "wager_amount_non_negative",
           "expression": "amount >= 0",
-          "definition": "CHECK ((amount >= (0)::numeric))",
-          "columnName": "amount"
+          "definition": "check (amount >= 0)"
         },
         {
           "name": "wager_transactions_failure_code_check",
@@ -938,18 +1013,7 @@
           "columnName": "direction"
         }
       ],
-      "triggers": [
-        {
-          "name": "wallet_ledger_immutability_trigger",
-          "timing": "before",
-          "events": [
-            "delete",
-            "update"
-          ],
-          "forEach": "statement",
-          "body": ""
-        }
-      ],
+      "triggers": [],
       "foreignKeys": {},
       "comment": null
     },
@@ -1104,14 +1168,12 @@
         {
           "name": "wallet_balance_non_negative",
           "expression": "balance >= 0",
-          "definition": "CHECK ((balance >= (0)::numeric))",
-          "columnName": "balance"
+          "definition": "check (balance >= 0)"
         },
         {
           "name": "wallet_version_positive",
           "expression": "version >= 1",
-          "definition": "CHECK ((version >= 1))",
-          "columnName": "version"
+          "definition": "check (version >= 1)"
         }
       ],
       "triggers": [],
