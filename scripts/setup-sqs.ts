@@ -1,52 +1,104 @@
 import {
   CreateQueueCommand,
   GetQueueAttributesCommand,
+  GetQueueUrlCommand,
   SQSClient,
 } from '@aws-sdk/client-sqs';
 
-const sqs = new SQSClient({
-  region: 'us-east-1',
+const endpoint =
+  process.env.SQS_ENDPOINT ??
+  'http://localhost:4566';
 
-  endpoint:
-    'http://localhost:4566',
+const region =
+  process.env.AWS_REGION ??
+  'us-east-1';
 
-  credentials: {
-    accessKeyId:
-      'test',
+const client =
+  new SQSClient({
+    region,
+    endpoint,
 
-    secretAccessKey:
-      'test',
-  },
-});
+    credentials: {
+      accessKeyId:
+        process.env.AWS_ACCESS_KEY_ID ??
+        'test',
 
-async function main() {
-  const dlq =
-    await sqs.send(
-      new CreateQueueCommand({
+      secretAccessKey:
+        process.env.AWS_SECRET_ACCESS_KEY ??
+        'test',
+    },
+  });
+
+const mainQueueName =
+  'wager-transactions.fifo';
+
+const deadLetterQueueName =
+  'wager-transactions-dlq.fifo';
+
+const integrationEventsQueueName =
+  'integration-events.fifo';
+
+async function getQueueUrl(
+  queueName: string,
+): Promise<string> {
+  const result =
+    await client.send(
+      new GetQueueUrlCommand({
         QueueName:
-          'wager-transactions-dlq.fifo',
-
-        Attributes: {
-          FifoQueue:
-            'true',
-
-          ContentBasedDeduplication:
-            'true',
-        },
+          queueName,
       }),
     );
 
-  if (!dlq.QueueUrl) {
+  if (!result.QueueUrl) {
     throw new Error(
-      'Could not create DLQ',
+      `Queue URL not found for ${queueName}`,
     );
   }
 
-  const dlqAttributes =
-    await sqs.send(
+  return result.QueueUrl;
+}
+
+async function createFifoQueue(
+  queueName: string,
+): Promise<string> {
+  await client.send(
+    new CreateQueueCommand({
+      QueueName:
+        queueName,
+
+      Attributes: {
+        FifoQueue:
+          'true',
+
+        ContentBasedDeduplication:
+          'true',
+      },
+    }),
+  );
+
+  return getQueueUrl(
+    queueName,
+  );
+}
+
+async function main(): Promise<void> {
+  /*
+   * 1. Cria primeiro a DLQ.
+   */
+  const deadLetterQueueUrl =
+    await createFifoQueue(
+      deadLetterQueueName,
+    );
+
+  /*
+   * 2. Busca o ARN da DLQ para configurar
+   * o RedrivePolicy da fila principal.
+   */
+  const deadLetterAttributes =
+    await client.send(
       new GetQueueAttributesCommand({
         QueueUrl:
-          dlq.QueueUrl,
+          deadLetterQueueUrl,
 
         AttributeNames: [
           'QueueArn',
@@ -54,59 +106,79 @@ async function main() {
       }),
     );
 
-  const dlqArn =
-    dlqAttributes.Attributes
+  const deadLetterQueueArn =
+    deadLetterAttributes
+      .Attributes
       ?.QueueArn;
 
-  if (!dlqArn) {
+  if (!deadLetterQueueArn) {
     throw new Error(
-      'Could not resolve DLQ ARN',
+      'DLQ ARN not found',
     );
   }
 
-  const mainQueue =
-    await sqs.send(
-      new CreateQueueCommand({
-        QueueName:
-          'wager-transactions.fifo',
+  /*
+   * 3. Cria a fila principal de transações.
+   */
+  await client.send(
+    new CreateQueueCommand({
+      QueueName:
+        mainQueueName,
 
-        Attributes: {
-          FifoQueue:
-            'true',
+      Attributes: {
+        FifoQueue:
+          'true',
 
-          ContentBasedDeduplication:
-            'true',
+        ContentBasedDeduplication:
+          'true',
 
-          VisibilityTimeout:
-            '30',
+        VisibilityTimeout:
+          '30',
 
-          RedrivePolicy:
-            JSON.stringify({
-              deadLetterTargetArn:
-                dlqArn,
+        RedrivePolicy:
+          JSON.stringify({
+            deadLetterTargetArn:
+              deadLetterQueueArn,
 
-              maxReceiveCount:
-                '5',
-            }),
-        },
-      }),
+            maxReceiveCount:
+              '5',
+          }),
+      },
+    }),
+  );
+
+  const mainQueueUrl =
+    await getQueueUrl(
+      mainQueueName,
     );
 
-  console.log({
-    mainQueue:
-      mainQueue.QueueUrl,
+  /*
+   * 4. Cria a fila utilizada pelo
+   * Transactional Outbox.
+   */
+  const integrationEventsQueueUrl =
+    await createFifoQueue(
+      integrationEventsQueueName,
+    );
 
-    dlq:
-      dlq.QueueUrl,
+  console.log(
+    'SQS queues ready',
+  );
 
-    dlqArn,
-  });
+  console.log(
+    'Wager queue:',
+    mainQueueUrl,
+  );
+
+  console.log(
+    'Wager DLQ:',
+    deadLetterQueueUrl,
+  );
+
+  console.log(
+    'Integration events:',
+    integrationEventsQueueUrl,
+  );
 }
 
-main().catch(
-  (error) => {
-    console.error(error);
-
-    process.exit(1);
-  },
-);
+await main();

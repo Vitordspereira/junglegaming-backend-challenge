@@ -8,6 +8,8 @@ import { TRANSACTION_MANAGER } from './application/ports/transaction-manager.js'
 import { READINESS_CHECKER } from './application/ports/readiness-checker.js';
 import { WAGER_TRANSACTION_QUEUE } from './application/ports/wager-transaction-queue.js';
 import { INBOX_MESSAGE_REPOSITORY } from './application/ports/inbox-message.repository.js';
+import { OUTBOX_MESSAGE_REPOSITORY } from './application/ports/outbox-message.repository.js';
+import { INTEGRATION_EVENT_PUBLISHER } from './application/ports/integration-event-publisher.js';
 
 import { CreateWalletUseCase } from './application/use-cases/create-wallet.use-case.js';
 import { GetWalletUseCase } from './application/use-cases/get-wallet.use-case.js';
@@ -16,6 +18,7 @@ import { GetWagerTransactionUseCase } from './application/use-cases/get-wager-tr
 import { GetProviderWagerTransactionUseCase } from './application/use-cases/get-provider-wager-transaction.use-case.js';
 import { ProcessWagerUseCase } from './application/use-cases/process-wager.use-case.js';
 import { ProcessWagerMessageUseCase } from './application/use-cases/process-wager-message.use-case.js';
+import { PublishOutboxUseCase } from './application/use-cases/publish-outbox.use-case.js';
 import { ReconcileWalletUseCase } from './application/use-cases/reconcile-wallet.use-case.js';
 import { CheckReadinessUseCase } from './application/use-cases/check-readiness.use-case.js';
 
@@ -23,12 +26,14 @@ import { MikroOrmWalletRepository } from './infrastructure/database/repositories
 import { MikroOrmWagerTransactionRepository } from './infrastructure/database/repositories/mikro-orm-wager-transaction.repository.js';
 import { MikroOrmWalletLedgerEntryRepository } from './infrastructure/database/repositories/mikro-orm-wallet-ledger-entry.repository.js';
 import { MikroOrmInboxMessageRepository } from './infrastructure/database/repositories/mikro-orm-inbox-message.repository.js';
+import { MikroOrmOutboxMessageRepository } from './infrastructure/database/repositories/mikro-orm-outbox-message.repository.js';
 
 import { MikroOrmTransactionManager } from './infrastructure/database/mikro-orm-transaction-manager.js';
 
 import { MikroOrmReadinessChecker } from './infrastructure/health/mikro-orm-readiness-checker.js';
 
 import { SqsWagerTransactionQueue } from './infrastructure/messaging/sqs-wager-transaction.queue.js';
+import { SqsIntegrationEventPublisher } from './infrastructure/messaging/sqs-integration-event.publisher.js';
 import { WagerTransactionConsumer } from './infrastructure/messaging/wager-transaction.consumer.js';
 
 import { WalletsController } from './presentation/http/wallets.controller.js';
@@ -60,6 +65,7 @@ import mikroOrmConfig from './mikro-orm.config.js';
     GetProviderWagerTransactionUseCase,
     ProcessWagerUseCase,
     ProcessWagerMessageUseCase,
+    PublishOutboxUseCase,
     ReconcileWalletUseCase,
     CheckReadinessUseCase,
 
@@ -99,6 +105,14 @@ import mikroOrmConfig from './mikro-orm.config.js';
 
     {
       provide:
+        OUTBOX_MESSAGE_REPOSITORY,
+
+      useClass:
+        MikroOrmOutboxMessageRepository,
+    },
+
+    {
+      provide:
         TRANSACTION_MANAGER,
 
       useClass:
@@ -111,6 +125,14 @@ import mikroOrmConfig from './mikro-orm.config.js';
 
       useClass:
         SqsWagerTransactionQueue,
+    },
+
+    {
+      provide:
+        INTEGRATION_EVENT_PUBLISHER,
+
+      useClass:
+        SqsIntegrationEventPublisher,
     },
 
     {
